@@ -1,0 +1,21 @@
+{
+  "name": "cotton-web",
+  "version": "0.0.1",
+  "description": "Cotton Web SDK for event tracking",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "keywords": [
+    "analytics",
+    "tracking",
+    "sdk"
+  ],
+  "author": "Cotton",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
