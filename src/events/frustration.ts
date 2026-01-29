@@ -88,7 +88,7 @@ function detectDeadClicks(track: TrackFn<FrustrationEventName>) {
 
           const deadClickEventDetails = {
             element: target.tagName,
-            text: target.innerText?.substring(0, 20),
+            text: target.innerText?.substring(0, 20) ?? '',
             x: event.clientX,
             y: event.clientY,
           }

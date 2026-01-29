@@ -14,7 +14,7 @@ export function setupClickTracking(track: TrackFn<ClickEventName>) {
         className: target.getAttribute('class') ?? '',
         id: target.id,
         tag: target.tagName,
-        text: target.innerText?.substring(0, 50),
+        text: target.innerText?.substring(0, 50) ?? '',
         x: event.clientX,
         y: event.clientY,
       }
