@@ -58,10 +58,6 @@ function detectDeadClicks(cotton: Cotton) {
     'click',
     event => {
       const target = event.target as HTMLElement
-      const isInteractive =
-        ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) ||
-        target.onclick != null ||
-        target.getAttribute('role') === 'button'
 
       // Dead clicks are interesting on things that *look* inactive or *should* be active but aren't.
       // Or things that are clicked but do nothing.
