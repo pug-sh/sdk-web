@@ -4,7 +4,7 @@ export type TrackFn<T extends string = string> = (eventName: T, properties?: Rec
 
 export interface EventData {
   readonly eventName: string
-  readonly properties: Record<string, JsonValue>
+  readonly properties: Readonly<Record<string, JsonValue>>
   readonly timestamp: number
 }
 

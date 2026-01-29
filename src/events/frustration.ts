@@ -26,12 +26,10 @@ function detectRageClicks(track: TrackFn<FrustrationEventName>) {
 
       const newClick = { x: event.clientX, y: event.clientY, time: now }
 
-      // Remove old clicks
       clicks = clicks.filter(c => now - c.time < TIME_WINDOW)
       clicks.push(newClick)
 
       if (clicks.length >= CLICKS_THRESHOLD) {
-        // Check if all clicks are close to each other
         const first = clicks[0]
         const allClose = clicks.every(
           c => Math.abs(c.x - first.x) < DISTANCE_THRESHOLD && Math.abs(c.y - first.y) < DISTANCE_THRESHOLD
@@ -69,7 +67,6 @@ function detectDeadClicks(track: TrackFn<FrustrationEventName>) {
       }
       const target = event.target as HTMLElement
 
-      // If it's a click on empty body space, ignore
       if (target === document.body || target === document.documentElement) {
         return
       }
