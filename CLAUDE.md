@@ -35,9 +35,9 @@ Each tracker module exports a `setup*Tracking(track: TrackFn<EventName>)` functi
 | ---------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `page_view.ts`   | `page_view`                 | Patches `history.pushState`/`replaceState`, listens to `popstate`                                                                                               |
 | `click.ts`       | `click`                     | Capture-phase listener; extracts tag, id, className, text, coordinates                                                                                          |
-| `scroll.ts`      | `scroll`                    | Trailing-edge throttle (2s); reports scroll depth percentage                                                                                                    |
+| `scroll.ts`      | `scroll`                    | Throttled (2s); samples scroll depth at timer expiry                                                                                                            |
 | `form.ts`        | `form_start`, `form_submit` | Uses `WeakSet` to deduplicate; listens to input/submit                                                                                                          |
-| `frustration.ts` | `rage_click`, `dead_click`  | Rage: 3+ clicks in 1s within 40px, debounced with 1s cooldown; Dead: no DOM mutation or URL change within 500ms (uses mutation counter for per-click isolation) |
+| `frustration.ts` | `rage_click`, `dead_click`  | Rage: 3+ clicks in 1s within 40px, 1s cooldown after firing; Dead: no DOM mutation or URL change within 500ms (uses mutation counter for per-click isolation)   |
 
 ### Key Pattern
 
@@ -45,7 +45,7 @@ Trackers receive a `track` function and call it directly — they do not access 
 
 ### Design Invariants
 
-- **`track()` must never throw.** It is wrapped in a centralized try/catch and any transport errors are caught via `.catch()`. Because trackers call `track()` from places like monkey-patched `history.pushState`/`replaceState`, an exception would break the host application. Callers may rely on `track()` being safe to call without their own error handling.
+- **`track()` must never throw.** It is wrapped in a centralized try/catch (with defensive `console.error` logging) and any transport errors are caught via `.catch()`. Because trackers call `track()` from places like monkey-patched `history.pushState`/`replaceState`, an exception would break the host application. Callers may rely on `track()` being safe to call without their own error handling.
 
 ## TypeScript & Module Setup
 
