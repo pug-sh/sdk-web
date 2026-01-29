@@ -1,6 +1,6 @@
-const esbuild = require('esbuild');
+const esbuild = require('esbuild')
 
-(async () => {
+;(async () => {
   try {
     await esbuild.build({
       entryPoints: ['src/index.ts'],
@@ -12,10 +12,10 @@ const esbuild = require('esbuild');
       sourcemap: true,
       target: 'es2020',
       external: [], // Bundle everything
-    });
-    console.log('Build completed successfully!');
+    })
+    console.log('Build completed successfully!')
   } catch (error) {
-    console.error('Build failed:', error);
-    process.exit(1);
+    console.error('Build failed:', error)
+    process.exit(1)
   }
-})();
+})()
