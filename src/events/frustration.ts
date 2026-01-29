@@ -50,11 +50,9 @@ function detectRageClicks(track: TrackFn<FrustrationEventName>) {
 }
 
 function detectDeadClicks(track: TrackFn<FrustrationEventName>) {
-  let mutationDetected = false
+  let mutationCount = 0
 
-  const observer = new MutationObserver(() => {
-    mutationDetected = true
-  })
+  const observer = new MutationObserver(() => (mutationCount += 1))
   observer.observe(document.documentElement, { childList: true, attributes: true, subtree: true, characterData: true })
 
   window.addEventListener(
@@ -71,12 +69,12 @@ function detectDeadClicks(track: TrackFn<FrustrationEventName>) {
       }
 
       const urlBefore = window.location.href
-      mutationDetected = false
+      const countAtClick = mutationCount
 
       setTimeout(() => {
         const urlAfter = window.location.href
 
-        if (urlBefore === urlAfter && !mutationDetected) {
+        if (urlBefore === urlAfter && mutationCount === countAtClick) {
           // Focus on an input is an effect, not a dead click
           if (document.activeElement === target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
             return
