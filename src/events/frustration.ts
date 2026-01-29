@@ -13,11 +13,17 @@ function detectRageClicks(track: TrackFn<FrustrationEventName>) {
   const DISTANCE_THRESHOLD = 40 // pixels
 
   let clicks: { x: number; y: number; time: number }[] = []
+  let cooldownUntil = 0
 
   window.addEventListener(
     'click',
     event => {
       const now = Date.now()
+
+      if (now < cooldownUntil) {
+        return
+      }
+
       const newClick = { x: event.clientX, y: event.clientY, time: now }
 
       // Remove old clicks
@@ -40,8 +46,8 @@ function detectRageClicks(track: TrackFn<FrustrationEventName>) {
           }
 
           track('rage_click', rageClickEventDetails)
-          // Reset to avoid double counting
           clicks = []
+          cooldownUntil = now + TIME_WINDOW
         }
       }
     },
