@@ -53,5 +53,5 @@ export function track(eventName: string, properties: Record<string, any> = {}) {
     },
     timestamp: Date.now(),
   }
-  transport.send(event)
+  transport.send(event).catch(err => console.error(`[Cotton SDK] Failed to send event "${eventName}":`, err))
 }
