@@ -21,7 +21,7 @@ npm run serve          # Serve static files on port 3000
 
 ### Core (`src/cotton.ts`)
 
-`cotton.ts` exports plain `init(projectId, options?)` and `track(eventName, properties?)` functions. Module-scoped variables (`config`, `transport`, `initialized`) enforce single initialization. `init()` creates the transport and iterates over tracker setup functions, each wrapped in try/catch for isolation. `track()` enriches events with `projectId`, `url`, `referrer`, `userAgent`, and `timestamp` before sending through the transport, with a centralized try/catch for error safety.
+`cotton.ts` exports plain `init(projectId, options?)` and `track(eventName, properties?)` functions. A single nullable module-scoped `state` object (`{ config, transport } | null`) enforces single initialization. `init()` creates the transport and iterates over tracker setup functions, each wrapped in try/catch for isolation. `track()` enriches events with `projectId`, `url`, `referrer`, `userAgent`, and `timestamp` before sending through the transport, with a centralized try/catch for error safety.
 
 ### Transport Layer (`src/transport.ts`)
 
@@ -42,6 +42,10 @@ Each tracker module exports a `setup*Tracking(track: TrackFn<EventName>)` functi
 ### Key Pattern
 
 Trackers receive a `track` function and call it directly — they do not access the transport. All browser event listeners are attached globally (document/window level) during `init()`.
+
+### Design Invariants
+
+- **`track()` must never throw.** It is wrapped in a centralized try/catch and any transport errors are caught via `.catch()`. Because trackers call `track()` from places like monkey-patched `history.pushState`/`replaceState`, an exception would break the host application. Callers may rely on `track()` being safe to call without their own error handling.
 
 ## TypeScript & Module Setup
 

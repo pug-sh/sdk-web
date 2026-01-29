@@ -60,13 +60,14 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
   }
 }
 
+/** This function must never throw. Callers (e.g. monkey-patched history.pushState) rely on it being safe. */
 export function track(eventName: CottonEventName, properties: Record<string, JsonValue> = {}) {
-  if (!state) {
-    console.warn('Cotton SDK not initialized. Call init() first.')
-    return
-  }
-
   try {
+    if (!state) {
+      console.warn('Cotton SDK not initialized. Call init() first.')
+      return
+    }
+
     const event: EventData = {
       eventName,
       properties: {
@@ -79,7 +80,7 @@ export function track(eventName: CottonEventName, properties: Record<string, Jso
       timestamp: Date.now(),
     }
     state.transport.send(event).catch(err => console.error(`[Cotton SDK] Failed to send event "${eventName}":`, err))
-  } catch (err) {
-    console.error(`[Cotton SDK] Failed to track event "${eventName}":`, err)
+  } catch {
+    // Intentionally empty — track() must never throw
   }
 }
