@@ -46,12 +46,17 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
     setupFrustrationTracking,
   ]
 
+  let failedCount = 0
   for (const setup of trackers) {
     try {
       setup(track)
     } catch (err) {
+      failedCount++
       console.error(`[Cotton SDK] Failed to initialize tracker "${setup.name}":`, err)
     }
+  }
+  if (failedCount > 0) {
+    console.warn(`[Cotton SDK] ${failedCount}/${trackers.length} trackers failed to initialize.`)
   }
 }
 
