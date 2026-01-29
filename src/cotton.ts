@@ -22,6 +22,7 @@ let state: { config: CottonConfig; transport: Transport } | null = null
 
 export function init(projectId: string, options: { endpoint?: string } = {}) {
   if (typeof window === 'undefined') {
+    console.warn('[Cotton SDK] init() called in a non-browser environment, skipping.')
     return
   }
 
