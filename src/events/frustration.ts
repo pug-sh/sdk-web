@@ -37,9 +37,6 @@ function detectRageClicks(track: TrackFn) {
             element: (event.target as HTMLElement).tagName,
           }
 
-          // Log the rage click event details to console
-          console.debug('[Cotton SDK] Rage click event details:', rageClickEventDetails)
-
           track('rage_click', rageClickEventDetails)
           // Reset to avoid double counting
           clicks = []
@@ -84,8 +81,6 @@ function detectDeadClicks(track: TrackFn) {
             x: event.clientX,
             y: event.clientY,
           }
-
-          console.debug('[Cotton SDK] Dead click event details:', deadClickEventDetails)
 
           track('dead_click', deadClickEventDetails)
         }

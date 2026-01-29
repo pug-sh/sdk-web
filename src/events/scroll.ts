@@ -14,9 +14,6 @@ export function setupScrollTracking(track: TrackFn) {
         percent: scrollable > 0 ? Math.round((window.scrollY / scrollable) * 100) : 0,
       }
 
-      // Log the scroll event details to console
-      console.debug('[Cotton SDK] Scroll event details:', scrollEventDetails)
-
       track('scroll', scrollEventDetails)
       timer = null
     }, THROTTLE_MS)

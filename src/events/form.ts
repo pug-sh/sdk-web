@@ -16,8 +16,6 @@ export function setupFormTracking(track: TrackFn) {
           action: form.action,
         }
 
-        console.debug('[Cotton SDK] Form submit event details:', formSubmitEventDetails)
-
         track('form_submit', formSubmitEventDetails)
       }
     },
@@ -35,8 +33,6 @@ function handleFormInteraction(target: HTMLElement, track: TrackFn, formsSeen: W
       formId: form.id,
       formName: form.name,
     }
-
-    console.debug('[Cotton SDK] Form start event details:', formStartEventDetails)
 
     track('form_start', formStartEventDetails)
   }
