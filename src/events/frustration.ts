@@ -45,6 +45,7 @@ function detectRageClicks(track: TrackFn<FrustrationEventName>) {
 
           track('rage_click', rageClickEventDetails)
           clicks = []
+          // Drops all clicks during cooldown to avoid duplicate events from the same burst
           cooldownUntil = now + TIME_WINDOW
         }
       }
