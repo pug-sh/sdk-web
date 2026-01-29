@@ -15,7 +15,7 @@ export function setupScrollTracking(track: TrackFn) {
       }
 
       // Log the scroll event details to console
-      console.log('[Cotton SDK] Scroll event details:', scrollEventDetails)
+      console.debug('[Cotton SDK] Scroll event details:', scrollEventDetails)
 
       track('scroll', scrollEventDetails)
       timer = null

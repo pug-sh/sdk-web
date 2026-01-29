@@ -14,7 +14,7 @@ export function setupClickTracking(track: TrackFn) {
         y: event.clientY,
       }
 
-      console.log('[Cotton SDK] Button click event details:', clickEventDetails)
+      console.debug('[Cotton SDK] Button click event details:', clickEventDetails)
 
       track('click', clickEventDetails)
     },

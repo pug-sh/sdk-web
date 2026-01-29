@@ -3,8 +3,6 @@ type TrackFn = (eventName: string, properties?: Record<string, any>) => void
 export function setupFormTracking(track: TrackFn) {
   const formsSeen = new WeakSet<HTMLFormElement>()
 
-  window.addEventListener('focus', event => handleFormInteraction(event.target as HTMLElement, track, formsSeen), true)
-
   window.addEventListener('input', event => handleFormInteraction(event.target as HTMLElement, track, formsSeen), true)
 
   window.addEventListener(
@@ -18,7 +16,7 @@ export function setupFormTracking(track: TrackFn) {
           action: form.action,
         }
 
-        console.log('[Cotton SDK] Form submit event details:', formSubmitEventDetails)
+        console.debug('[Cotton SDK] Form submit event details:', formSubmitEventDetails)
 
         track('form_submit', formSubmitEventDetails)
       }
@@ -38,7 +36,7 @@ function handleFormInteraction(target: HTMLElement, track: TrackFn, formsSeen: W
       formName: form.name,
     }
 
-    console.log('[Cotton SDK] Form start event details:', formStartEventDetails)
+    console.debug('[Cotton SDK] Form start event details:', formStartEventDetails)
 
     track('form_start', formStartEventDetails)
   }

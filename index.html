@@ -24,6 +24,14 @@
       import { init } from './dist/index.js'
       init('my-project-id', { endpoint: 'http://localhost:9000' })
 
+      let clickCount = 0
+      document.getElementById('test-click').addEventListener('click', () => {
+        document.title = `Click ${++clickCount}`
+      })
+      document.getElementById('rage-click').addEventListener('click', () => {
+        document.title = `Rage ${++clickCount}`
+      })
+
       console.log('Cotton SDK initialized!')
     </script>
   </body>

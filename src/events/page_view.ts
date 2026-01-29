@@ -5,7 +5,7 @@ export function setupPageViewTracking(track: TrackFn) {
   const pageViewEventDetails = {}
 
   // Log the page view event details to console
-  console.log('[Cotton SDK] Page view event details:', pageViewEventDetails)
+  console.debug('[Cotton SDK] Page view event details:', pageViewEventDetails)
 
   track('page_view', pageViewEventDetails)
 
@@ -16,7 +16,7 @@ export function setupPageViewTracking(track: TrackFn) {
     const pageViewEventDetails = {}
 
     // Log the page view event details to console
-    console.log('[Cotton SDK] Page view event details:', pageViewEventDetails)
+    console.debug('[Cotton SDK] Page view event details:', pageViewEventDetails)
 
     track('page_view', pageViewEventDetails)
   }
@@ -27,7 +27,7 @@ export function setupPageViewTracking(track: TrackFn) {
     const pageViewEventDetails = {}
 
     // Log the page view event details to console
-    console.log('[Cotton SDK] Page view event details:', pageViewEventDetails)
+    console.debug('[Cotton SDK] Page view event details:', pageViewEventDetails)
 
     track('page_view', pageViewEventDetails)
   }
@@ -36,7 +36,7 @@ export function setupPageViewTracking(track: TrackFn) {
     const pageViewEventDetails = {}
 
     // Log the page view event details to console
-    console.log('[Cotton SDK] Page view event details:', pageViewEventDetails)
+    console.debug('[Cotton SDK] Page view event details:', pageViewEventDetails)
 
     track('page_view', pageViewEventDetails)
   })
