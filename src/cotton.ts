@@ -18,7 +18,12 @@ export interface CottonConfig {
   readonly projectId: string
 }
 
-let state: { config: CottonConfig; transport: Transport } | null = null
+interface CottonState {
+  readonly config: CottonConfig
+  readonly transport: Transport
+}
+
+let state: CottonState | null = null
 
 export function init(projectId: string, options: { endpoint?: string } = {}) {
   if (typeof window === 'undefined') {
