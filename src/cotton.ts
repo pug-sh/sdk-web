@@ -18,27 +18,24 @@ export interface CottonConfig {
   readonly projectId: string
 }
 
-let config: CottonConfig
-let transport: Transport
-let initialized = false
+let state: { config: CottonConfig; transport: Transport } | null = null
 
 export function init(projectId: string, options: { endpoint?: string } = {}) {
   if (typeof window === 'undefined') {
     return
   }
 
-  if (initialized) {
+  if (state) {
     console.warn('Cotton SDK already initialized')
     return
   }
 
-  config = {
+  const config: CottonConfig = {
     projectId,
     endpoint: options.endpoint || 'http://localhost:8080',
   }
 
-  transport = createTransport(config.endpoint)
-  initialized = true
+  state = { config, transport: createTransport(config.endpoint) }
 
   const trackers = [
     setupPageViewTracking,
@@ -58,7 +55,7 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
 }
 
 export function track(eventName: CottonEventName, properties: Record<string, JsonValue> = {}) {
-  if (!initialized) {
+  if (!state) {
     console.warn('Cotton SDK not initialized. Call init() first.')
     return
   }
@@ -68,14 +65,14 @@ export function track(eventName: CottonEventName, properties: Record<string, Jso
       eventName,
       properties: {
         ...properties,
-        projectId: config.projectId,
+        projectId: state.config.projectId,
         url: window.location.href,
         referrer: document.referrer,
         userAgent: navigator.userAgent,
       },
       timestamp: Date.now(),
     }
-    transport.send(event).catch(err => console.error(`[Cotton SDK] Failed to send event "${eventName}":`, err))
+    state.transport.send(event).catch(err => console.error(`[Cotton SDK] Failed to send event "${eventName}":`, err))
   } catch (err) {
     console.error(`[Cotton SDK] Failed to track event "${eventName}":`, err)
   }
