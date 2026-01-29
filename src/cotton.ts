@@ -23,6 +23,10 @@ let transport: Transport
 let initialized = false
 
 export function init(projectId: string, options: { endpoint?: string } = {}) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
   if (initialized) {
     console.warn('Cotton SDK already initialized')
     return
