@@ -15,6 +15,10 @@
 - [ ] Rotate session ID after inactivity timeout (e.g. 30min with no events)
 - [ ] Generate anonymous device/user ID (persisted in `localStorage`)
 
+## Event Naming
+
+- [ ] Separate auto-enriched properties (`projectId`, `url`, `referrer`, `userAgent`) from user-supplied properties (e.g. top-level `context` field vs `properties`)
+
 ## SDK Lifecycle
 
 - [ ] Add `destroy()` / `shutdown()` function to tear down listeners and flush pending events
