@@ -63,6 +63,10 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
 /** This function must never throw. Callers (e.g. monkey-patched history.pushState) rely on it being safe. */
 export function track(eventName: CottonEventName, properties: Record<string, JsonValue> = {}) {
   try {
+    if (typeof window === 'undefined') {
+      return
+    }
+
     if (!state) {
       console.warn('Cotton SDK not initialized. Call init() first.')
       return
