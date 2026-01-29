@@ -3,9 +3,9 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [key:
 export type TrackFn<T extends string = string> = (eventName: T, properties?: Record<string, JsonValue>) => void
 
 export interface EventData {
-  eventName: string
-  properties: Record<string, JsonValue>
-  timestamp: number
+  readonly eventName: string
+  readonly properties: Record<string, JsonValue>
+  readonly timestamp: number
 }
 
 export interface Transport {
