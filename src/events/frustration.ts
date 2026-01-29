@@ -32,9 +32,9 @@ function detectRageClicks(track: TrackFn) {
         if (allClose) {
           const rageClickEventDetails = {
             clickCount: clicks.length,
+            element: (event.target as HTMLElement)?.tagName ?? '',
             x: first.x,
             y: first.y,
-            element: (event.target as HTMLElement).tagName,
           }
 
           track('rage_click', rageClickEventDetails)
@@ -58,10 +58,15 @@ function detectDeadClicks(track: TrackFn) {
   window.addEventListener(
     'click',
     event => {
+      if (!event.target) {
+        return
+      }
       const target = event.target as HTMLElement
 
       // If it's a click on empty body space, ignore
-      if (target === document.body || target === document.documentElement) return
+      if (target === document.body || target === document.documentElement) {
+        return
+      }
 
       const urlBefore = window.location.href
       mutationDetected = false

@@ -5,13 +5,15 @@ export function setupScrollTracking(track: TrackFn) {
   const THROTTLE_MS = 2000 // Track at most every 2 seconds
 
   window.addEventListener('scroll', () => {
-    if (timer) return
+    if (timer) {
+      return
+    }
 
     timer = setTimeout(() => {
       const scrollable = document.body.scrollHeight - window.innerHeight
       const scrollEventDetails = {
-        scrollY: window.scrollY,
         percent: scrollable > 0 ? Math.round((window.scrollY / scrollable) * 100) : 0,
+        scrollY: window.scrollY,
       }
 
       track('scroll', scrollEventDetails)

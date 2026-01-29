@@ -4,11 +4,14 @@ export function setupClickTracking(track: TrackFn) {
   window.addEventListener(
     'click',
     event => {
+      if (!event.target) {
+        return
+      }
       const target = event.target as HTMLElement
       const clickEventDetails = {
-        tag: target.tagName,
+        className: target.getAttribute('class') ?? '',
         id: target.id,
-        className: target.className,
+        tag: target.tagName,
         text: target.innerText?.substring(0, 50),
         x: event.clientX,
         y: event.clientY,
