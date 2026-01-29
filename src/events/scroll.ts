@@ -1,8 +1,9 @@
 type TrackFn = (eventName: string, properties?: Record<string, any>) => void
 
 export function setupScrollTracking(track: TrackFn) {
-  let timer: any = null
-  const THROTTLE_MS = 2000 // Track at most every 2 seconds
+  let timer: ReturnType<typeof setTimeout> | null = null
+  // Throttle: captures scroll position at the end of the window, not at the trigger point
+  const THROTTLE_MS = 2000
 
   window.addEventListener('scroll', () => {
     if (timer) {
