@@ -1,46 +1,52 @@
-import Cotton from '../cotton'
+import type { TrackFn } from '../transport.js'
 
-export function setupFrustrationTracking(cotton: Cotton) {
-  detectRageClicks(cotton)
-  detectDeadClicks(cotton)
+export type FrustrationEventName = 'rage_click' | 'dead_click'
+
+export function setupFrustrationTracking(track: TrackFn<FrustrationEventName>) {
+  detectRageClicks(track)
+  detectDeadClicks(track)
 }
 
-function detectRageClicks(cotton: Cotton) {
+function detectRageClicks(track: TrackFn<FrustrationEventName>) {
   const CLICKS_THRESHOLD = 3
   const TIME_WINDOW = 1000 // ms
   const DISTANCE_THRESHOLD = 40 // pixels
 
   let clicks: { x: number; y: number; time: number }[] = []
+  let cooldownUntil = 0
 
   window.addEventListener(
     'click',
     event => {
       const now = Date.now()
+
+      if (now < cooldownUntil) {
+        return
+      }
+
       const newClick = { x: event.clientX, y: event.clientY, time: now }
 
-      // Remove old clicks
       clicks = clicks.filter(c => now - c.time < TIME_WINDOW)
       clicks.push(newClick)
 
       if (clicks.length >= CLICKS_THRESHOLD) {
-        // Check if all clicks are close to each other
         const first = clicks[0]
-        const allClose = clicks.every(c => Math.abs(c.x - first.x) < DISTANCE_THRESHOLD && Math.abs(c.y - first.y) < DISTANCE_THRESHOLD)
+        const allClose = clicks.every(
+          c => Math.abs(c.x - first.x) < DISTANCE_THRESHOLD && Math.abs(c.y - first.y) < DISTANCE_THRESHOLD
+        )
 
         if (allClose) {
           const rageClickEventDetails = {
             clickCount: clicks.length,
+            element: (event.target as HTMLElement)?.tagName ?? '',
             x: first.x,
             y: first.y,
-            element: (event.target as HTMLElement).tagName,
           }
 
-          // Log the rage click event details to console
-          console.log('[Cotton SDK] Rage click event details:', rageClickEventDetails)
-
-          cotton.track('rage_click', rageClickEventDetails)
-          // Reset to avoid double counting
+          track('rage_click', rageClickEventDetails)
           clicks = []
+          // Drops all clicks during cooldown to avoid duplicate events from the same burst
+          cooldownUntil = now + TIME_WINDOW
         }
       }
     },
@@ -48,60 +54,44 @@ function detectRageClicks(cotton: Cotton) {
   )
 }
 
-function detectDeadClicks(cotton: Cotton) {
-  // A dead click is a click that has no effect (no visual change, no navigation)
-  // We'll use specific heuristics:
-  // 1. Click on non-interactive element? (hard to detect universally without access to computed styles simply)
-  // 2. Click does NOT trigger DOM mutation or navigation soon after.
+function detectDeadClicks(track: TrackFn<FrustrationEventName>) {
+  let mutationCount = 0
+
+  const observer = new MutationObserver(() => (mutationCount += 1))
+  observer.observe(document.documentElement, { childList: true, attributes: true, subtree: true, characterData: true })
 
   window.addEventListener(
     'click',
     event => {
+      if (!event.target) {
+        return
+      }
       const target = event.target as HTMLElement
-      const isInteractive =
-        ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) ||
-        target.onclick != null ||
-        target.getAttribute('role') === 'button'
 
-      // Dead clicks are interesting on things that *look* inactive or *should* be active but aren't.
-      // Or things that are clicked but do nothing.
-      // Let's assume everything is potentially interactive.
-      // If NO DOM mutation and NO URL change happens in 500ms, it's a "dead click" candidate?
-      // This might be too noisy.
-      // Better definition: User clicks, nothing happens.
+      if (target === document.body || target === document.documentElement) {
+        return
+      }
 
       const urlBefore = window.location.href
-      let mutationDetected = false
-
-      const observer = new MutationObserver(() => {
-        mutationDetected = true
-      })
-      observer.observe(document.body, { childList: true, attributes: true, subtree: true, characterData: true })
+      const countAtClick = mutationCount
 
       setTimeout(() => {
-        observer.disconnect()
         const urlAfter = window.location.href
 
-        if (urlBefore === urlAfter && !mutationDetected) {
-          // Also check if it focused something (like an input) - that's an effect
+        if (urlBefore === urlAfter && mutationCount === countAtClick) {
+          // Focus on an input is an effect, not a dead click
           if (document.activeElement === target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
             return
           }
 
-          // If it's a "boring" click on empty body space, ignore
-          if (target === document.body || target === document.documentElement) return
-
           const deadClickEventDetails = {
             element: target.tagName,
-            text: target.innerText?.substring(0, 20),
+            text: target.innerText?.substring(0, 20) ?? '',
             x: event.clientX,
             y: event.clientY,
           }
 
-          // Log the dead click event details to console
-          console.log('[Cotton SDK] Dead click event details:', deadClickEventDetails)
-
-          cotton.track('dead_click', deadClickEventDetails)
+          track('dead_click', deadClickEventDetails)
         }
       }, 500)
     },

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cotton SDK Test</title>
+    <link rel="stylesheet" href="public/styles.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <div class="test-sections">
+        <h1>cotton sdk test</h1>
+        <p>interactive test page for event tracking. actions appear in the log panel.</p>
+
+        <div class="section">
+          <h2>
+            click tracking
+            <span class="badge badge-click">click</span>
+            <span class="badge badge-rage">rage</span>
+          </h2>
+          <p class="desc">
+            each click fires a click event and mutates the DOM. click 3+ times within 1 second to trigger rage_click.
+          </p>
+          <div class="controls">
+            <button id="test-click">click me</button>
+            <span id="click-count" class="status">0 clicks</span>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>dead click detection <span class="badge badge-dead">dead</span></h2>
+          <p class="desc">click the dashed zone — no handler, no DOM mutation. the SDK flags it as dead after 500ms.</p>
+          <div class="dead-zone" id="dead-zone">click here — nothing will happen</div>
+        </div>
+
+        <div class="section">
+          <h2>
+            form tracking
+            <span class="badge badge-formstart">form_start</span>
+            <span class="badge badge-formsubmit">form_submit</span>
+          </h2>
+          <p class="desc">typing fires form_start once per form. submit fires form_submit. navigation is prevented.</p>
+          <form id="test-form" name="test-form">
+            <div class="form-field">
+              <label for="f-name">name</label>
+              <input type="text" id="f-name" name="name" placeholder="jane doe" />
+            </div>
+            <div class="form-field">
+              <label for="f-email">email</label>
+              <input type="email" id="f-email" name="email" placeholder="jane@example.com" />
+            </div>
+            <button type="submit">submit</button>
+          </form>
+          <div id="form-status" class="status"></div>
+        </div>
+
+        <div class="section">
+          <h2>scroll tracking <span class="badge badge-scroll">scroll</span></h2>
+          <p class="desc">scroll the page. events are throttled to 2 second intervals.</p>
+          <div class="scroll-well" id="scroll-well">
+            <span class="scroll-marker at-0">0%</span>
+            <span class="scroll-marker at-25">25%</span>
+            <span class="scroll-marker at-50">50%</span>
+            <span class="scroll-marker at-75">75%</span>
+            <span class="scroll-marker at-100">100%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="event-log-panel">
+        <div class="log-header">
+          <h2>event log <span class="event-count" id="event-count">0</span></h2>
+          <div class="log-controls">
+            <button id="log-pause">pause</button>
+            <button id="log-clear">clear</button>
+          </div>
+        </div>
+        <div class="log-body" id="log-body">
+          <div class="log-empty" id="log-empty">waiting for events&hellip;</div>
+        </div>
+      </div>
+    </div>
+
+    <script src="public/intercept.js"></script>
+    <script type="module" src="public/app.js"></script>
+  </body>
+</html>

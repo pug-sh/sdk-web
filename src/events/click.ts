@@ -1,22 +1,25 @@
-import Cotton from '../cotton'
+import type { TrackFn } from '../transport.js'
 
-export function setupClickTracking(cotton: Cotton) {
+export type ClickEventName = 'click'
+
+export function setupClickTracking(track: TrackFn<ClickEventName>) {
   window.addEventListener(
     'click',
     event => {
+      if (!event.target) {
+        return
+      }
       const target = event.target as HTMLElement
       const clickEventDetails = {
-        tag: target.tagName,
+        className: target.getAttribute('class') ?? '',
         id: target.id,
-        className: target.className,
-        text: target.innerText?.substring(0, 50),
+        tag: target.tagName,
+        text: target.innerText?.substring(0, 50) ?? '',
         x: event.clientX,
         y: event.clientY,
       }
 
-      console.log('[Cotton SDK] Button click event details:', clickEventDetails)
-
-      cotton.track('click', clickEventDetails)
+      track('click', clickEventDetails)
     },
     true
   )

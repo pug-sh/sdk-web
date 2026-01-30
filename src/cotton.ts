@@ -1,66 +1,98 @@
-import { Transport, GrpcTransport, EventData } from './transport'
-import { setupPageViewTracking } from './events/page_view'
-import { setupClickTracking } from './events/click'
-import { setupScrollTracking } from './events/scroll'
-import { setupFormTracking } from './events/form'
-import { setupFrustrationTracking } from './events/frustration'
+import { type ClickEventName, setupClickTracking } from './events/click.js'
+import { type FormEventName, setupFormTracking } from './events/form.js'
+import { type FrustrationEventName, setupFrustrationTracking } from './events/frustration.js'
+import { type PageViewEventName, setupPageViewTracking } from './events/page_view.js'
+import { type ScrollEventName, setupScrollTracking } from './events/scroll.js'
+import { type EventData, type JsonValue, type Transport, createTransport } from './transport.js'
+
+export type CottonEventName =
+  | ClickEventName
+  | FormEventName
+  | FrustrationEventName
+  | PageViewEventName
+  | ScrollEventName
+  | (string & {})
 
 export interface CottonConfig {
-  endpoint: string
-  projectId: string
+  readonly endpoint: string
+  readonly projectId: string
 }
 
-export default class Cotton {
-  private static instance: Cotton
-  private transport: Transport
-  private config: CottonConfig
+interface CottonState {
+  readonly config: CottonConfig
+  readonly transport: Transport
+}
 
-  private constructor(config: CottonConfig) {
-    this.config = config
-    this.transport = new GrpcTransport(config.endpoint)
-    this.initTrackers()
+let state: CottonState | null = null
+
+export function init(projectId: string, options: { endpoint?: string } = {}) {
+  if (typeof window === 'undefined') {
+    console.warn('[Cotton SDK] init() called in a non-browser environment, skipping.')
+    return
   }
 
-  public static init(projectId: string, options: { endpoint?: string } = {}) {
-    if (Cotton.instance) {
-      console.warn('Cotton SDK already initialized')
+  if (state) {
+    console.warn('Cotton SDK already initialized')
+    return
+  }
+
+  const config: CottonConfig = {
+    projectId,
+    endpoint: options.endpoint || 'http://localhost:8080',
+  }
+
+  state = { config, transport: createTransport(config.endpoint) }
+
+  const trackers = [
+    setupPageViewTracking,
+    setupClickTracking,
+    setupScrollTracking,
+    setupFormTracking,
+    setupFrustrationTracking,
+  ]
+
+  let failedCount = 0
+  for (const setup of trackers) {
+    try {
+      setup(track)
+    } catch (err) {
+      failedCount++
+      console.error(`[Cotton SDK] Failed to initialize tracker "${setup.name}":`, err)
+    }
+  }
+  if (failedCount > 0) {
+    console.warn(`[Cotton SDK] ${failedCount}/${trackers.length} trackers failed to initialize.`)
+  }
+}
+
+/** This function must never throw. Callers (e.g. monkey-patched history.pushState) rely on it being safe. */
+export function track(eventName: CottonEventName, properties: Record<string, JsonValue> = {}) {
+  try {
+    if (typeof window === 'undefined') {
       return
     }
 
-    const config: CottonConfig = {
-      projectId,
-      endpoint: options.endpoint || 'http://localhost:8080', // Default endpoint
+    if (!state) {
+      console.warn('Cotton SDK not initialized. Call init() first.')
+      return
     }
 
-    Cotton.instance = new Cotton(config)
-  }
-
-  // Helper to access the singleton instance safely if needed internally,
-  // or we can make static methods that delegate to instance.
-  // For now, track listeners have reference to 'cotton' instance passed to them.
-  // But if we want global access without passing instance everywhere, we might need a getter.
-  // However, the current architecture passes 'this' to setup functions in constructor, which works fine.
-
-  private initTrackers() {
-    setupPageViewTracking(this)
-    setupClickTracking(this)
-    setupScrollTracking(this)
-    setupFormTracking(this)
-    setupFrustrationTracking(this)
-  }
-
-  public track(eventName: string, properties: Record<string, any> = {}) {
     const event: EventData = {
       eventName,
       properties: {
         ...properties,
-        projectId: this.config.projectId,
+        projectId: state.config.projectId,
         url: window.location.href,
         referrer: document.referrer,
         userAgent: navigator.userAgent,
       },
       timestamp: Date.now(),
     }
-    this.transport.send(event)
+    state.transport.send(event).catch(err => console.error(`[Cotton SDK] Failed to send event "${eventName}":`, err))
+  } catch (err) {
+    // track() must never throw, but we defensively log the failure
+    if (typeof console !== 'undefined' && typeof console.error === 'function') {
+      console.error(`[Cotton SDK] Unexpected error in track("${eventName}"):`, err)
+    }
   }
 }

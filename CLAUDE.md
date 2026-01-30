@@ -4,47 +4,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cotton Web SDK (`cotton-web`) is a browser-side analytics/event-tracking library written in TypeScript. It auto-captures page views, clicks, scrolls, form interactions, and frustration signals (rage clicks, dead clicks), then sends them through a pluggable transport layer (currently a placeholder gRPC implementation).
+Cotton Web SDK (`cotton-web`) is a browser-side analytics/event-tracking library written in TypeScript. It auto-captures page views, clicks, scrolls, form interactions, and frustration signals (rage clicks, dead clicks), then sends them through a pluggable transport layer (currently a mock console-logging implementation, intended to be replaced with a ConnectRPC client).
 
 ## Build & Development Commands
 
 ```bash
 npm run build          # Compile TypeScript to dist/ (tsc)
 npm run watch          # Watch mode TypeScript compilation
-node build.js          # Bundle with esbuild → dist/bundle.js (ESM, sourcemaps, es2020, browser)
-node server.js         # Start Express dev server on port 8080
+npm run dev            # Watch TypeScript + serve on port 3000
+npm run serve          # Serve static files on port 3000
 ```
 
-**Manual testing:** After building, run the dev server and open `http://localhost:8080/manual_test.html`. No automated test framework is configured.
+**Manual testing:** After building, run `npm run serve` and open `http://localhost:3000`. No automated test framework is configured.
 
 ## Architecture
 
-### Singleton Core (`src/cotton.ts`)
+### Core (`src/cotton.ts`)
 
-`Cotton` uses a private constructor + static `init(projectId, options?)` pattern. Initialization creates the singleton, wires up the transport, and registers all event trackers. The `track(eventName, properties)` method enriches events with `projectId`, `url`, `referrer`, `userAgent`, and `timestamp` before sending through the transport.
+`cotton.ts` exports plain `init(projectId, options?)` and `track(eventName, properties?)` functions. A single nullable module-scoped `state` object (`{ config, transport } | null`) enforces single initialization. `init()` creates the transport and iterates over tracker setup functions, each wrapped in try/catch for isolation. `track()` enriches events with `projectId`, `url`, `referrer`, `userAgent`, and `timestamp` before sending through the transport, with a centralized try/catch for error safety.
 
 ### Transport Layer (`src/transport.ts`)
 
-`Transport` interface with a single `send(event: EventData): Promise<void>` method. `GrpcTransport` is currently a console-logging placeholder. New transport backends should implement the `Transport` interface.
+`Transport` interface with a single `send(event: EventData): Promise<void>` method. `createTransport(endpoint)` is a factory function that currently returns a console-logging mock. The module also exports `JsonValue` (recursive type-safe JSON value type) and `TrackFn<T>` (generic callback type used by all trackers). New transport backends should implement the `Transport` interface.
 
 ### Event Trackers (`src/events/`)
 
-Each tracker module exports a `setup*Tracking(cotton: Cotton)` function called during `initTrackers()`:
+Each tracker module exports a `setup*Tracking(track: TrackFn<EventName>)` function and a corresponding event name union type. They are called during `init()`, each wrapped in try/catch to isolate failures:
 
-| Module | Events | Notes |
-|--------|--------|-------|
-| `page_view.ts` | `page_view` | Patches `history.pushState`/`replaceState`, listens to `popstate` |
-| `click.ts` | `click` | Capture-phase listener; extracts tag, id, className, text, coordinates |
-| `scroll.ts` | `scroll` | Throttled (2s); reports scroll depth percentage |
-| `form.ts` | `form_start`, `form_submit` | Uses `WeakSet` to deduplicate; listens to focus/input/submit |
-| `frustration.ts` | `rage_click`, `dead_click` | Rage: 3+ clicks in 1s within 40px; Dead: no DOM mutation or URL change within 500ms |
+| Module           | Events                      | Notes                                                                                                                                                         |
+| ---------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `page_view.ts`   | `page_view`                 | Patches `history.pushState`/`replaceState`, listens to `popstate`                                                                                             |
+| `click.ts`       | `click`                     | Capture-phase listener; extracts tag, id, className, text, coordinates                                                                                        |
+| `scroll.ts`      | `scroll`                    | Throttled (2s); samples scroll depth at timer expiry                                                                                                          |
+| `form.ts`        | `form_start`, `form_submit` | Uses `WeakSet` to deduplicate; listens to input/submit                                                                                                        |
+| `frustration.ts` | `rage_click`, `dead_click`  | Rage: 3+ clicks in 1s within 40px, 1s cooldown after firing; Dead: no DOM mutation or URL change within 500ms (uses mutation counter for per-click isolation) |
 
 ### Key Pattern
 
-Trackers receive the `Cotton` instance and call `cotton.track()` — they do not access the transport directly. All browser event listeners are attached globally (document/window level) during construction.
+Trackers receive a `track` function and call it directly — they do not access the transport. All browser event listeners are attached globally (document/window level) during `init()`.
+
+### Design Invariants
+
+- **`track()` must never throw.** It is wrapped in a centralized try/catch (with defensive `console.error` logging) and any transport errors are caught via `.catch()`. Because trackers call `track()` from places like monkey-patched `history.pushState`/`replaceState`, an exception would break the host application. Callers may rely on `track()` being safe to call without their own error handling.
 
 ## TypeScript & Module Setup
 
 - Target/module: ES2020, strict mode, declarations emitted to `dist/`
 - Imports within `src/` use `.js` extensions (required for ES module resolution at runtime)
-- Barrel export: `src/index.ts` re-exports `Cotton`, `CottonConfig`, `Transport`, `EventData`, `GrpcTransport`
+- Module resolution: `bundler`
+- Barrel export: `src/index.ts` re-exports `init`, `track`, `CottonConfig`, `CottonEventName` from cotton, and `createTransport`, `EventData`, `JsonValue`, `TrackFn`, `Transport` from transport

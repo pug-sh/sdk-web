@@ -1,45 +1,43 @@
-import Cotton from '../cotton'
+import type { TrackFn } from '../transport.js'
 
-export function setupFormTracking(cotton: Cotton) {
+export type FormEventName = 'form_start' | 'form_submit'
+
+export function setupFormTracking(track: TrackFn<FormEventName>) {
   const formsSeen = new WeakSet<HTMLFormElement>()
 
-  window.addEventListener('focus', event => handleFormInteraction(event.target as HTMLElement, cotton, formsSeen), true)
-
-  window.addEventListener('input', event => handleFormInteraction(event.target as HTMLElement, cotton, formsSeen), true)
-
+  // form_start fires on first input, not focus — avoids false positives from tab navigation
   window.addEventListener(
-    'submit',
+    'input',
     event => {
-      const form = event.target as HTMLFormElement
-      if (form) {
-        const formSubmitEventDetails = {
+      if (!event.target) {
+        return
+      }
+      const form = (event.target as HTMLInputElement).form
+
+      if (form && !formsSeen.has(form)) {
+        formsSeen.add(form)
+        track('form_start', {
           formId: form.id,
           formName: form.name,
-          action: form.action,
-        }
-
-        console.log('[Cotton SDK] Form submit event details:', formSubmitEventDetails)
-
-        cotton.track('form_submit', formSubmitEventDetails)
+        })
       }
     },
     true
   )
-}
 
-function handleFormInteraction(target: HTMLElement, cotton: Cotton, formsSeen: WeakSet<HTMLFormElement>) {
-  if (!target) return
-  const form = (target as any).form as HTMLFormElement
-
-  if (form && !formsSeen.has(form)) {
-    formsSeen.add(form)
-    const formStartEventDetails = {
-      formId: form.id,
-      formName: form.name,
-    }
-
-    console.log('[Cotton SDK] Form start event details:', formStartEventDetails)
-
-    cotton.track('form_start', formStartEventDetails)
-  }
+  window.addEventListener(
+    'submit',
+    event => {
+      if (!event.target) {
+        return
+      }
+      const form = event.target as HTMLFormElement
+      track('form_submit', {
+        action: form.action,
+        formId: form.id,
+        formName: form.name,
+      })
+    },
+    true
+  )
 }

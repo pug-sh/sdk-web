@@ -1,22 +1,25 @@
-import Cotton from '../cotton'
+import type { TrackFn } from '../transport.js'
 
-export function setupScrollTracking(cotton: Cotton) {
-  let timer: any = null
-  const THROTTLE_MS = 2000 // Track at most every 2 seconds
+export type ScrollEventName = 'scroll'
+
+export function setupScrollTracking(track: TrackFn<ScrollEventName>) {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  // Throttle: captures scroll position at the end of the window, not at the trigger point
+  const THROTTLE_MS = 2000
 
   window.addEventListener('scroll', () => {
-    if (timer) return
+    if (timer) {
+      return
+    }
 
     timer = setTimeout(() => {
+      const scrollable = document.body.scrollHeight - window.innerHeight
       const scrollEventDetails = {
+        percent: scrollable > 0 ? Math.round((window.scrollY / scrollable) * 100) : 0,
         scrollY: window.scrollY,
-        percent: Math.round((window.scrollY / (document.body.scrollHeight - window.innerHeight)) * 100),
       }
 
-      // Log the scroll event details to console
-      console.log('[Cotton SDK] Scroll event details:', scrollEventDetails)
-
-      cotton.track('scroll', scrollEventDetails)
+      track('scroll', scrollEventDetails)
       timer = null
     }, THROTTLE_MS)
   })
