@@ -3,7 +3,7 @@ import { type FormEventName, setupFormTracking } from './events/form.js'
 import { type FrustrationEventName, setupFrustrationTracking } from './events/frustration.js'
 import { type PageViewEventName, setupPageViewTracking } from './events/page_view.js'
 import { type ScrollEventName, setupScrollTracking } from './events/scroll.js'
-import { type EventData, type JsonValue, type Transport, createTransport } from './transport.js'
+import { type CleanupFn, type EventData, type JsonValue, type Transport, createTransport } from './transport.js'
 
 export type CottonEventName =
   | ClickEventName
@@ -21,6 +21,7 @@ export interface CottonConfig {
 interface CottonState {
   readonly config: CottonConfig
   readonly transport: Transport
+  readonly cleanups: CleanupFn[]
 }
 
 let state: CottonState | null = null
@@ -41,7 +42,8 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
     endpoint: options.endpoint || 'http://localhost:8080',
   }
 
-  state = { config, transport: createTransport(config.endpoint) }
+  const cleanups: CleanupFn[] = []
+  state = { config, transport: createTransport(config.endpoint), cleanups }
 
   const trackers = [
     setupPageViewTracking,
@@ -54,7 +56,8 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
   let failedCount = 0
   for (const setup of trackers) {
     try {
-      setup(track)
+      const cleanup = setup(track)
+      cleanups.push(cleanup)
     } catch (err) {
       failedCount++
       console.error(`[Cotton SDK] Failed to initialize tracker "${setup.name}":`, err)
@@ -63,6 +66,24 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
   if (failedCount > 0) {
     console.warn(`[Cotton SDK] ${failedCount}/${trackers.length} trackers failed to initialize.`)
   }
+}
+
+export function destroy() {
+  if (!state) {
+    console.warn('[Cotton SDK] destroy() called but SDK is not initialized.')
+    return
+  }
+
+  for (const cleanup of state.cleanups) {
+    try {
+      cleanup()
+    } catch (err) {
+      console.error('[Cotton SDK] Error during cleanup:', err)
+    }
+  }
+
+  state.transport.destroy?.()
+  state = null
 }
 
 /** This function must never throw. Callers (e.g. monkey-patched history.pushState) rely on it being safe. */

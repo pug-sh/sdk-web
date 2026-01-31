@@ -2,6 +2,8 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [key:
 
 export type TrackFn<T extends string = string> = (eventName: T, properties?: Record<string, JsonValue>) => void
 
+export type CleanupFn = () => void
+
 export interface EventData {
   readonly eventName: string
   readonly properties: Readonly<Record<string, JsonValue>>
@@ -10,6 +12,7 @@ export interface EventData {
 
 export interface Transport {
   send(event: EventData): Promise<void>
+  destroy?(): void
 }
 
 // Mock transport for development - replace with ConnectRPC client

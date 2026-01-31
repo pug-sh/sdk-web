@@ -1,8 +1,8 @@
-import type { TrackFn } from '../transport.js'
+import type { CleanupFn, TrackFn } from '../transport.js'
 
 export type PageViewEventName = 'page_view'
 
-export function setupPageViewTracking(track: TrackFn<PageViewEventName>) {
+export function setupPageViewTracking(track: TrackFn<PageViewEventName>): CleanupFn {
   track('page_view')
 
   const originalPushState = history.pushState
@@ -17,5 +17,12 @@ export function setupPageViewTracking(track: TrackFn<PageViewEventName>) {
     track('page_view')
   }
 
-  window.addEventListener('popstate', () => track('page_view'))
+  const onPopState = () => track('page_view')
+  window.addEventListener('popstate', onPopState)
+
+  return () => {
+    history.pushState = originalPushState
+    history.replaceState = originalReplaceState
+    window.removeEventListener('popstate', onPopState)
+  }
 }
