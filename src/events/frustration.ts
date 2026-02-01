@@ -1,18 +1,18 @@
-import type { CleanupFn, TrackFn } from '../transport.js'
+import type { TrackFn } from '../transport.js'
 
 export type FrustrationEventName = 'rage_click' | 'dead_click'
 
-export function setupFrustrationTracking(track: TrackFn<FrustrationEventName>): CleanupFn {
+export function setupFrustrationTracking(track: TrackFn<FrustrationEventName>): () => void {
   const cleanupRage = detectRageClicks(track)
   const cleanupDead = detectDeadClicks(track)
 
   return () => {
-    cleanupRage()
-    cleanupDead()
+    try { cleanupRage() } catch (err) { console.error('[Cotton SDK] Error cleaning up rage click tracking:', err) }
+    try { cleanupDead() } catch (err) { console.error('[Cotton SDK] Error cleaning up dead click tracking:', err) }
   }
 }
 
-function detectRageClicks(track: TrackFn<FrustrationEventName>): CleanupFn {
+function detectRageClicks(track: TrackFn<FrustrationEventName>): () => void {
   const CLICKS_THRESHOLD = 3
   const TIME_WINDOW = 1000 // ms
   const DISTANCE_THRESHOLD = 40 // pixels
@@ -61,8 +61,9 @@ function detectRageClicks(track: TrackFn<FrustrationEventName>): CleanupFn {
   }
 }
 
-function detectDeadClicks(track: TrackFn<FrustrationEventName>): CleanupFn {
+function detectDeadClicks(track: TrackFn<FrustrationEventName>): () => void {
   let mutationCount = 0
+  const pendingTimers = new Set<ReturnType<typeof setTimeout>>()
 
   const observer = new MutationObserver(() => (mutationCount += 1))
   observer.observe(document.documentElement, { childList: true, attributes: true, subtree: true, characterData: true })
@@ -80,7 +81,8 @@ function detectDeadClicks(track: TrackFn<FrustrationEventName>): CleanupFn {
     const urlBefore = window.location.href
     const countAtClick = mutationCount
 
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      pendingTimers.delete(timer)
       const urlAfter = window.location.href
 
       if (urlBefore === urlAfter && mutationCount === countAtClick) {
@@ -99,6 +101,7 @@ function detectDeadClicks(track: TrackFn<FrustrationEventName>): CleanupFn {
         track('dead_click', deadClickEventDetails)
       }
     }, 500)
+    pendingTimers.add(timer)
   }
 
   window.addEventListener('click', onClick, true)
@@ -106,5 +109,9 @@ function detectDeadClicks(track: TrackFn<FrustrationEventName>): CleanupFn {
   return () => {
     window.removeEventListener('click', onClick, true)
     observer.disconnect()
+    for (const timer of pendingTimers) {
+      clearTimeout(timer)
+    }
+    pendingTimers.clear()
   }
 }

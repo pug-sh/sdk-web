@@ -1,8 +1,8 @@
-import type { CleanupFn, TrackFn } from '../transport.js'
+import type { TrackFn } from '../transport.js'
 
 export type ScrollEventName = 'scroll'
 
-export function setupScrollTracking(track: TrackFn<ScrollEventName>): CleanupFn {
+export function setupScrollTracking(track: TrackFn<ScrollEventName>): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null
   // Throttle: captures scroll position at the end of the window, not at the trigger point
   const THROTTLE_MS = 2000

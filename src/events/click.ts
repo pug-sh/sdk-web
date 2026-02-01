@@ -1,8 +1,8 @@
-import type { CleanupFn, TrackFn } from '../transport.js'
+import type { TrackFn } from '../transport.js'
 
 export type ClickEventName = 'click'
 
-export function setupClickTracking(track: TrackFn<ClickEventName>): CleanupFn {
+export function setupClickTracking(track: TrackFn<ClickEventName>): () => void {
   const onClick = (event: MouseEvent) => {
     if (!event.target) {
       return

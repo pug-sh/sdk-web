@@ -3,7 +3,7 @@ import { type FormEventName, setupFormTracking } from './events/form.js'
 import { type FrustrationEventName, setupFrustrationTracking } from './events/frustration.js'
 import { type PageViewEventName, setupPageViewTracking } from './events/page_view.js'
 import { type ScrollEventName, setupScrollTracking } from './events/scroll.js'
-import { type CleanupFn, type EventData, type JsonValue, type Transport, createTransport } from './transport.js'
+import { type EventData, type JsonValue, type Transport, createTransport } from './transport.js'
 
 export type CottonEventName =
   | ClickEventName
@@ -21,7 +21,7 @@ export interface CottonConfig {
 interface CottonState {
   readonly config: CottonConfig
   readonly transport: Transport
-  readonly cleanups: CleanupFn[]
+  readonly cleanups: (() => void)[]
 }
 
 let state: CottonState | null = null
@@ -42,7 +42,7 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
     endpoint: options.endpoint || 'http://localhost:8080',
   }
 
-  const cleanups: CleanupFn[] = []
+  const cleanups: (() => void)[] = []
   state = { config, transport: createTransport(config.endpoint), cleanups }
 
   const trackers = [
@@ -82,7 +82,12 @@ export function destroy() {
     }
   }
 
-  state.transport.destroy?.()
+  try {
+    state.transport.destroy?.()
+  } catch (err) {
+    console.error('[Cotton SDK] Error during transport destroy:', err)
+  }
+
   state = null
 }
 
