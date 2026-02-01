@@ -2,43 +2,34 @@ import type { TrackFn } from '../transport.js'
 
 export type PageViewEventName = 'page_view'
 
-let patched = false
-
 export function setupPageViewTracking(track: TrackFn<PageViewEventName>) {
   track('page_view')
 
-  let originalPushState: typeof history.pushState | null = null
-  let originalReplaceState: typeof history.replaceState | null = null
-
-  if (!patched) {
-    patched = true
-
-    originalPushState = history.pushState
-    history.pushState = function (...args) {
-      originalPushState!.apply(this, args)
-      window.dispatchEvent(new Event('cotton:navigation'))
-    }
-
-    originalReplaceState = history.replaceState
-    history.replaceState = function (...args) {
-      originalReplaceState!.apply(this, args)
-      window.dispatchEvent(new Event('cotton:navigation'))
-    }
+  const originalPushState = history.pushState
+  const wrappedPushState = function (this: History, ...args: Parameters<typeof history.pushState>) {
+    originalPushState.apply(this, args)
+    track('page_view')
   }
+  history.pushState = wrappedPushState
 
-  const onNav = () => track('page_view')
-  window.addEventListener('cotton:navigation', onNav)
-  window.addEventListener('popstate', onNav)
+  const originalReplaceState = history.replaceState
+  const wrappedReplaceState = function (this: History, ...args: Parameters<typeof history.replaceState>) {
+    originalReplaceState.apply(this, args)
+    track('page_view')
+  }
+  history.replaceState = wrappedReplaceState
+
+  const onPopState = () => track('page_view')
+  window.addEventListener('popstate', onPopState)
 
   return () => {
-    window.removeEventListener('cotton:navigation', onNav)
-    window.removeEventListener('popstate', onNav)
-    if (originalPushState) {
+    window.removeEventListener('popstate', onPopState)
+    // Only restore if no one else has wrapped on top of us
+    if (history.pushState === wrappedPushState) {
       history.pushState = originalPushState
     }
-    if (originalReplaceState) {
+    if (history.replaceState === wrappedReplaceState) {
       history.replaceState = originalReplaceState
     }
-    patched = false
   }
 }

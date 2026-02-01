@@ -21,10 +21,10 @@ export interface CottonConfig {
 interface CottonState {
   readonly config: CottonConfig
   readonly transport: Transport
-  readonly cleanups: (() => void)[]
 }
 
 let state: CottonState | null = null
+let cleanups: (() => void)[] = []
 
 export function init(projectId: string, options: { endpoint?: string } = {}) {
   if (typeof window === 'undefined') {
@@ -42,8 +42,8 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
     endpoint: options.endpoint || 'http://localhost:8080',
   }
 
-  const cleanups: (() => void)[] = []
-  state = { config, transport: createTransport(config.endpoint), cleanups }
+  cleanups = []
+  state = { config, transport: createTransport(config.endpoint) }
 
   const trackers = [
     setupPageViewTracking,
@@ -74,7 +74,7 @@ export function destroy() {
     return
   }
 
-  for (const cleanup of state.cleanups) {
+  for (const cleanup of cleanups) {
     try {
       cleanup()
     } catch (err) {

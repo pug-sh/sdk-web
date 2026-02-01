@@ -7,8 +7,8 @@ export function setupFrustrationTracking(track: TrackFn<FrustrationEventName>) {
   const cleanupDead = detectDeadClicks(track)
 
   return () => {
-    try { cleanupRage() } catch (err) { console.error('[Cotton SDK] Error cleaning up rage click tracking:', err) }
-    try { cleanupDead() } catch (err) { console.error('[Cotton SDK] Error cleaning up dead click tracking:', err) }
+    cleanupRage()
+    cleanupDead()
   }
 }
 
