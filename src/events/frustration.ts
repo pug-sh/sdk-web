@@ -1,18 +1,10 @@
 import type { TrackFn } from '../transport.js'
 
-export type FrustrationEventName = 'rage_click' | 'dead_click'
+export type RageClickEventName = 'rage_click'
+export type DeadClickEventName = 'dead_click'
+export type FrustrationEventName = RageClickEventName | DeadClickEventName
 
-export function setupFrustrationTracking(track: TrackFn<FrustrationEventName>) {
-  const cleanupRage = detectRageClicks(track)
-  const cleanupDead = detectDeadClicks(track)
-
-  return () => {
-    try { cleanupRage() } catch (err) { console.error('[Cotton SDK] Error cleaning up rage click tracking:', err) }
-    try { cleanupDead() } catch (err) { console.error('[Cotton SDK] Error cleaning up dead click tracking:', err) }
-  }
-}
-
-function detectRageClicks(track: TrackFn<FrustrationEventName>): () => void {
+export function setupRageClickTracking(track: TrackFn<RageClickEventName>): () => void {
   const CLICKS_THRESHOLD = 3
   const TIME_WINDOW = 1000 // ms
   const DISTANCE_THRESHOLD = 40 // pixels
@@ -61,7 +53,7 @@ function detectRageClicks(track: TrackFn<FrustrationEventName>): () => void {
   }
 }
 
-function detectDeadClicks(track: TrackFn<FrustrationEventName>): () => void {
+export function setupDeadClickTracking(track: TrackFn<DeadClickEventName>): () => void {
   let mutationCount = 0
   const pendingTimers = new Set<ReturnType<typeof setTimeout>>()
 

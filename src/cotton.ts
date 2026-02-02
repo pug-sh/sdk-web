@@ -1,6 +1,6 @@
 import { type ClickEventName, setupClickTracking } from './events/click.js'
 import { type FormEventName, setupFormTracking } from './events/form.js'
-import { type FrustrationEventName, setupFrustrationTracking } from './events/frustration.js'
+import { type FrustrationEventName, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
 import { type PageViewEventName, setupPageViewTracking } from './events/page_view.js'
 import { type ScrollEventName, setupScrollTracking } from './events/scroll.js'
 import { type EventData, type JsonValue, type Transport, createTransport } from './transport.js'
@@ -24,7 +24,8 @@ interface CottonState {
 }
 
 let state: CottonState | null = null
-let cleanups: (() => void)[] = []
+export let destroyed = false
+let cleanups: { name: string; fn: () => void }[] = []
 
 export function init(projectId: string, options: { endpoint?: string } = {}) {
   if (typeof window === 'undefined') {
@@ -43,6 +44,7 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
   }
 
   cleanups = []
+  destroyed = false
   state = { config, transport: createTransport(config.endpoint) }
 
   const trackers = [
@@ -50,14 +52,15 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
     setupClickTracking,
     setupScrollTracking,
     setupFormTracking,
-    setupFrustrationTracking,
+    setupRageClickTracking,
+    setupDeadClickTracking,
   ]
 
   let failedCount = 0
   for (const setup of trackers) {
     try {
       const cleanup = setup(track)
-      cleanups.push(cleanup)
+      cleanups.push({ name: setup.name, fn: cleanup })
     } catch (err) {
       failedCount++
       console.error(`[Cotton SDK] Failed to initialize tracker "${setup.name}":`, err)
@@ -76,9 +79,9 @@ export function destroy() {
 
   for (const cleanup of cleanups) {
     try {
-      cleanup()
+      cleanup.fn()
     } catch (err) {
-      console.error('[Cotton SDK] Error during cleanup:', err)
+      console.error(`[Cotton SDK] Error during cleanup of "${cleanup.name}":`, err)
     }
   }
 
@@ -88,6 +91,8 @@ export function destroy() {
     console.error('[Cotton SDK] Error during transport destroy:', err)
   }
 
+  cleanups = []
+  destroyed = true
   state = null
 }
 
