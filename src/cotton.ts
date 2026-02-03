@@ -1,15 +1,16 @@
 import { type ClickEventName, setupClickTracking } from './events/click.js'
 import { type FormEventName, setupFormTracking } from './events/form.js'
-import { type FrustrationEventName, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
+import { type DeadClickEventName, type RageClickEventName, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
 import { type PageViewEventName, setupPageViewTracking } from './events/page_view.js'
 import { type ScrollEventName, setupScrollTracking } from './events/scroll.js'
 import { type EventData, type JsonValue, type Transport, createTransport } from './transport.js'
 
 export type CottonEventName =
   | ClickEventName
+  | DeadClickEventName
   | FormEventName
-  | FrustrationEventName
   | PageViewEventName
+  | RageClickEventName
   | ScrollEventName
   | (string & {})
 
@@ -24,7 +25,6 @@ interface CottonState {
 }
 
 let state: CottonState | null = null
-export let destroyed = false
 let cleanups: { name: string; fn: () => void }[] = []
 
 export function init(projectId: string, options: { endpoint?: string } = {}) {
@@ -44,7 +44,6 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
   }
 
   cleanups = []
-  destroyed = false
   state = { config, transport: createTransport(config.endpoint) }
 
   const trackers = [
@@ -92,7 +91,6 @@ export function destroy() {
   }
 
   cleanups = []
-  destroyed = true
   state = null
 }
 

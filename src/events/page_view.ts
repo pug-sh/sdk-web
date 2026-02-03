@@ -1,22 +1,21 @@
-import { destroyed } from '../cotton.js'
 import type { TrackFn } from '../transport.js'
 
 export type PageViewEventName = 'page_view'
 
-export function setupPageViewTracking(track: TrackFn<PageViewEventName>) {
+export function setupPageViewTracking(track: TrackFn<PageViewEventName>): () => void {
   track('page_view')
 
   const originalPushState = history.pushState
   const wrappedPushState = function (this: History, ...args: Parameters<typeof history.pushState>) {
     originalPushState.apply(this, args)
-    if (!destroyed) track('page_view')
+    track('page_view')
   }
   history.pushState = wrappedPushState
 
   const originalReplaceState = history.replaceState
   const wrappedReplaceState = function (this: History, ...args: Parameters<typeof history.replaceState>) {
     originalReplaceState.apply(this, args)
-    if (!destroyed) track('page_view')
+    track('page_view')
   }
   history.replaceState = wrappedReplaceState
 
