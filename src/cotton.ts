@@ -112,8 +112,14 @@ export function destroy() {
   state = null
 }
 
+export interface TrackOptions {
+  readonly immediate?: boolean
+  /** Probability (0–1) that this event is sent. Defaults to 1 (always send). */
+  readonly sampleRate?: number
+}
+
 /** This function must never throw. Callers (e.g. monkey-patched history.pushState) rely on it being safe. */
-export function track(eventName: CottonEventName, properties: Record<string, JsonValue> = {}) {
+export function track(eventName: CottonEventName, properties: Record<string, JsonValue> = {}, options?: TrackOptions) {
   try {
     if (typeof window === 'undefined') {
       return
@@ -123,6 +129,9 @@ export function track(eventName: CottonEventName, properties: Record<string, Jso
       console.warn('Cotton SDK not initialized. Call init() first.')
       return
     }
+
+    const sampleRate = options?.sampleRate ?? 1
+    if (sampleRate < 1 && Math.random() >= sampleRate) return
 
     const event: EventData = {
       eventName,
@@ -135,7 +144,8 @@ export function track(eventName: CottonEventName, properties: Record<string, Jso
       },
       timestamp: Date.now(),
     }
-    state.transport.send(event).catch(err => console.error(`[Cotton SDK] Failed to send event "${eventName}":`, err))
+    const immediate = options?.immediate ?? false
+    state.transport.send(event, { immediate }).catch(err => console.error(`[Cotton SDK] Failed to send event "${eventName}":`, err))
   } catch (err) {
     // track() must never throw, but we defensively log the failure
     if (typeof console !== 'undefined' && typeof console.error === 'function') {

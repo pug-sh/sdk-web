@@ -1,4 +1,4 @@
-import type { EventData, Transport } from './transport.js'
+import type { EventData, SendOptions, Transport } from './transport.js'
 
 export interface QueueStorage {
   push(event: EventData): void
@@ -235,7 +235,16 @@ export function createBatchedTransport(inner: Transport, config: BatchConfig): T
   window.addEventListener('pagehide', flush)
 
   return {
-    async send(event: EventData): Promise<void> {
+    async send(event: EventData, options?: SendOptions): Promise<void> {
+      if (options?.immediate) {
+        try {
+          await inner.send(event)
+        } catch {
+          storage.push(event)
+          scheduleFlush()
+        }
+        return
+      }
       storage.push(event)
       if (storage.size >= config.maxSize) {
         flush()

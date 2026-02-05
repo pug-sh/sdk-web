@@ -8,8 +8,12 @@ export interface EventData {
   readonly timestamp: number
 }
 
+export interface SendOptions {
+  readonly immediate?: boolean
+}
+
 export interface Transport {
-  send(event: EventData): Promise<void>
+  send(event: EventData, options?: SendOptions): Promise<void>
   sendBatch?(events: readonly EventData[]): Promise<void>
   destroy?(): void
 }
