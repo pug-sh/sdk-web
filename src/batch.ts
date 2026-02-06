@@ -2,6 +2,8 @@ import type { EventData, SendOptions, Transport } from './transport.js'
 
 export interface QueueStorage {
   push(event: EventData): void
+  peek(): readonly EventData[]
+  drop(count: number): void
   drain(): readonly EventData[]
   readonly size: number
 }
@@ -30,6 +32,12 @@ export function createMemoryQueueStorage(maxQueueSize: number): QueueStorage {
         }
       }
       buffer.push(event)
+    },
+    peek(): readonly EventData[] {
+      return buffer.slice()
+    },
+    drop(count: number): void {
+      buffer.splice(0, count)
     },
     drain(): readonly EventData[] {
       const batch = buffer
@@ -99,6 +107,14 @@ export function createLocalStorageQueueStorage(key: string, maxQueueSize: number
       buffer.push(event)
       dirty = true
       schedulePersist()
+    },
+    peek(): readonly EventData[] {
+      return buffer.slice()
+    },
+    drop(count: number): void {
+      buffer.splice(0, count)
+      dirty = true
+      persist()
     },
     drain(): readonly EventData[] {
       clearSyncTimer()
@@ -178,13 +194,15 @@ export function createBatchedTransport(inner: Transport, config: BatchConfig): T
       return
     }
     clearTimer()
-    const batch = storage.drain()
+    const batch = storage.peek()
     if (batch.length === 0) return
 
     flushing = true
+    const batchSize = batch.length
 
     sendEvents(batch)
       .then(() => {
+        storage.drop(batchSize)
         retryCount = 0
       })
       .catch((err) => {
@@ -193,15 +211,8 @@ export function createBatchedTransport(inner: Transport, config: BatchConfig): T
           retryCount++
           if (retryCount > MAX_RETRIES) {
             console.warn('[Cotton SDK] Max retries reached, dropping batch')
+            storage.drop(batchSize)
             retryCount = 0
-            return
-          }
-          const newer = storage.drain()
-          for (const event of batch) {
-            storage.push(event)
-          }
-          for (const event of newer) {
-            storage.push(event)
           }
         }
       })
