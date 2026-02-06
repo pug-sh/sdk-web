@@ -18,6 +18,7 @@ export type CottonEventName =
 export interface CottonConfig {
   readonly endpoint: string
   readonly projectId: string
+  readonly sampleRate: number
 }
 
 interface CottonState {
@@ -28,7 +29,7 @@ interface CottonState {
 let state: CottonState | null = null
 let cleanups: { name: string; fn: () => void }[] = []
 
-export function init(projectId: string, options: { endpoint?: string; batch?: boolean | Partial<BatchConfig> } = {}) {
+export function init(projectId: string, options: { endpoint?: string; sampleRate?: number; batch?: boolean | Partial<BatchConfig> } = {}) {
   if (typeof window === 'undefined') {
     console.warn('[Cotton SDK] init() called in a non-browser environment, skipping.')
     return
@@ -39,9 +40,14 @@ export function init(projectId: string, options: { endpoint?: string; batch?: bo
     return
   }
 
+  const sampleRate = options.sampleRate ?? 1
+  if (sampleRate < 0 || sampleRate > 1) {
+    throw new Error(`[Cotton SDK] sampleRate must be between 0 and 1, got ${sampleRate}`)
+  }
   const config: CottonConfig = {
     projectId,
     endpoint: options.endpoint || 'http://localhost:8080',
+    sampleRate,
   }
 
   cleanups = []
@@ -130,8 +136,8 @@ export function track(eventName: CottonEventName, properties: Record<string, Jso
       return
     }
 
-    const sampleRate = options?.sampleRate ?? 1
-    if (sampleRate < 1 && Math.random() >= sampleRate) return
+    const effectiveSampleRate = options?.sampleRate ?? state.config.sampleRate
+    if (effectiveSampleRate < 1 && Math.random() >= effectiveSampleRate) return
 
     const event: EventData = {
       eventName,

@@ -2,7 +2,8 @@ import type { EventData, SendOptions, Transport } from './transport.js'
 
 export interface QueueStorage {
   push(event: EventData): void
-  peek(): readonly EventData[]
+  lock(): readonly EventData[]
+  unlock(): void
   drop(count: number): void
   drain(): readonly EventData[]
   readonly size: number
@@ -21,6 +22,7 @@ function isLocalStorageAvailable(): boolean {
 
 export function createMemoryQueueStorage(maxQueueSize: number): QueueStorage {
   let buffer: EventData[] = []
+  let locked = 0
   let warnedQueueFull = false
   return {
     push(event: EventData) {
@@ -33,16 +35,22 @@ export function createMemoryQueueStorage(maxQueueSize: number): QueueStorage {
       }
       buffer.push(event)
     },
-    peek(): readonly EventData[] {
+    lock(): readonly EventData[] {
+      if (locked > 0) return []
+      locked = buffer.length
       return buffer.slice()
+    },
+    unlock(): void {
+      locked = 0
     },
     drop(count: number): void {
       buffer.splice(0, count)
+      locked = Math.max(0, locked - count)
     },
     drain(): readonly EventData[] {
-      const batch = buffer
-      buffer = []
-      return batch
+      const unlocked = buffer.slice(locked)
+      buffer = buffer.slice(0, locked)
+      return unlocked
     },
     get size(): number {
       return buffer.length
@@ -51,9 +59,6 @@ export function createMemoryQueueStorage(maxQueueSize: number): QueueStorage {
 }
 
 export function createLocalStorageQueueStorage(key: string, maxQueueSize: number): QueueStorage {
-  const SYNC_INTERVAL = 2000
-  let syncTimer: ReturnType<typeof setTimeout> | null = null
-
   // Hydrate from localStorage once; memory is the source of truth from here on
   let buffer: EventData[]
   try {
@@ -62,37 +67,20 @@ export function createLocalStorageQueueStorage(key: string, maxQueueSize: number
   } catch {
     buffer = []
   }
-  let dirty = false
 
   function persist(): void {
-    if (!dirty) return
     try {
       if (buffer.length === 0) {
         localStorage.removeItem(key)
       } else {
         localStorage.setItem(key, JSON.stringify(buffer))
       }
-      dirty = false
     } catch {
       console.warn('[Cotton SDK] localStorage write failed, events may be lost')
     }
   }
 
-  function schedulePersist(): void {
-    if (syncTimer !== null) return
-    syncTimer = setTimeout(() => {
-      syncTimer = null
-      persist()
-    }, SYNC_INTERVAL)
-  }
-
-  function clearSyncTimer(): void {
-    if (syncTimer !== null) {
-      clearTimeout(syncTimer)
-      syncTimer = null
-    }
-  }
-
+  let locked = 0
   let warnedQueueFull = false
 
   return {
@@ -105,24 +93,26 @@ export function createLocalStorageQueueStorage(key: string, maxQueueSize: number
         }
       }
       buffer.push(event)
-      dirty = true
-      schedulePersist()
+      persist()
     },
-    peek(): readonly EventData[] {
+    lock(): readonly EventData[] {
+      if (locked > 0) return []
+      locked = buffer.length
       return buffer.slice()
+    },
+    unlock(): void {
+      locked = 0
     },
     drop(count: number): void {
       buffer.splice(0, count)
-      dirty = true
+      locked = Math.max(0, locked - count)
       persist()
     },
     drain(): readonly EventData[] {
-      clearSyncTimer()
-      const batch = buffer
-      buffer = []
-      dirty = true
+      const unlocked = buffer.slice(locked)
+      buffer = buffer.slice(0, locked)
       persist()
-      return batch
+      return unlocked
     },
     get size(): number {
       return buffer.length
@@ -190,7 +180,7 @@ export function createBatchedTransport(inner: Transport, config: BatchConfig): T
       return
     }
     clearTimer()
-    const batch = storage.peek()
+    const batch = storage.lock()
     if (batch.length === 0) return
 
     flushing = true
@@ -201,6 +191,7 @@ export function createBatchedTransport(inner: Transport, config: BatchConfig): T
         storage.drop(batchSize)
       })
       .catch((err) => {
+        storage.unlock()
         console.error('[Cotton SDK] Failed to send batch:', err)
       })
       .finally(() => {
