@@ -92,6 +92,6 @@ export function createTransport(endpoint: string): Transport {
       }
     },
 
-    destroy() {},
+    destroy() { },
   }
 }
