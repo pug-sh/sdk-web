@@ -5,6 +5,7 @@ import { createRpcClients } from './rpc.js'
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 
+/** User-facing options passed to `track()`. Includes client-side sampling in addition to transport hints. */
 export interface TrackOptions {
   readonly immediate?: boolean
   /** Probability (0–1) that this event is sent. Defaults to 1 (always send). */
@@ -19,6 +20,7 @@ export interface EventData {
   readonly timestamp: number
 }
 
+/** Transport-level delivery options passed to `Transport.send()`. */
 export interface SendOptions {
   readonly immediate?: boolean
 }
@@ -36,7 +38,12 @@ function toProtoEvent(event: EventData) {
   const userProperties: Record<string, string> = {}
 
   for (const [k, v] of Object.entries(event.properties)) {
-    const value = typeof v === 'string' ? v : JSON.stringify(v)
+    let value: string
+    try {
+      value = typeof v === 'string' ? v : JSON.stringify(v)
+    } catch {
+      value = String(v)
+    }
     if ((SDK_PROPERTY_KEYS as readonly string[]).includes(k)) {
       sdkProperties[k] = value
     } else {

@@ -1,10 +1,10 @@
 import { type BatchConfig, DEFAULT_BATCH_CONFIG, createBatchedTransport } from './batch.js'
-import { createRateLimitedTransport } from './rate-limit.js'
 import { type ClickEventName, setupClickTracking } from './events/click.js'
 import { type FormEventName, setupFormTracking } from './events/form.js'
 import { type DeadClickEventName, type RageClickEventName, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
 import { type PageViewEventName, setupPageViewTracking } from './events/page_view.js'
 import { type ScrollEventName, setupScrollTracking } from './events/scroll.js'
+import { createRateLimitedTransport } from './rate-limit.js'
 import { type EventData, type JsonValue, type TrackOptions, type Transport, createTransport } from './transport.js'
 
 export type CottonEventName =
@@ -22,6 +22,13 @@ export interface CottonConfig {
   readonly sampleRate: number
 }
 
+export interface InitOptions {
+  readonly endpoint?: string
+  readonly sampleRate?: number
+  readonly rateLimit?: number
+  readonly batch?: boolean | Partial<BatchConfig>
+}
+
 interface CottonState {
   readonly config: CottonConfig
   readonly transport: Transport
@@ -30,10 +37,14 @@ interface CottonState {
 let state: CottonState | null = null
 let cleanups: { name: string; fn: () => void }[] = []
 
-export function init(projectId: string, options: { endpoint?: string; sampleRate?: number; rateLimit?: number; batch?: boolean | Partial<BatchConfig> } = {}) {
+export function init(projectId: string, options: InitOptions = {}) {
   if (typeof window === 'undefined') {
     console.warn('[Cotton SDK] init() called in a non-browser environment, skipping.')
     return
+  }
+
+  if (!projectId || typeof projectId !== 'string') {
+    throw new Error('[Cotton SDK] projectId is required and must be a non-empty string')
   }
 
   if (state) {
