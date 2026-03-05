@@ -18,7 +18,7 @@
   "author": "Cotton",
   "license": "ISC",
   "devDependencies": {
-    "serve": "^14.2.5",
+    "serve": "^14.2.6",
     "typescript": "^5.9.3"
   },
   "prettier": {
