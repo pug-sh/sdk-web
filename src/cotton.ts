@@ -24,6 +24,7 @@ export interface CottonConfig {
 
 export interface InitOptions {
   readonly endpoint?: string
+  readonly token: string
   readonly sampleRate?: number
   readonly rateLimit?: number
   readonly batch?: boolean | Partial<BatchConfig>
@@ -37,7 +38,7 @@ interface CottonState {
 let state: CottonState | null = null
 let cleanups: { name: string; fn: () => void }[] = []
 
-export function init(projectId: string, options: InitOptions = {}) {
+export function init(projectId: string, options: InitOptions) {
   if (typeof window === 'undefined') {
     console.warn('[Cotton SDK] init() called in a non-browser environment, skipping.')
     return
@@ -64,7 +65,7 @@ export function init(projectId: string, options: InitOptions = {}) {
   }
 
   cleanups = []
-  let transport: Transport = createTransport(config.endpoint)
+  let transport: Transport = createTransport(config.endpoint, options.token)
 
   if (options.batch) {
     const merged = typeof options.batch === 'object'

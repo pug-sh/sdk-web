@@ -22,7 +22,7 @@ export function createRateLimitedTransport(inner: Transport, maxPerSecond: numbe
     while (pending.length > 0 && tokens >= 1) {
       tokens -= 1
       const item = pending.shift()!
-      inner.send(item.event, item.options).catch(() => { })
+      inner.send(item.event, item.options).catch(() => {})
     }
     if (pending.length > 0) {
       scheduleDrain()
@@ -59,7 +59,7 @@ export function createRateLimitedTransport(inner: Transport, maxPerSecond: numbe
         drainTimer = null
       }
       for (const item of pending) {
-        inner.send(item.event, item.options).catch(() => { })
+        inner.send(item.event, item.options).catch(() => {})
       }
       pending.length = 0
       inner.destroy?.()

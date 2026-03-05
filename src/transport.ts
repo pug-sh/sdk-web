@@ -60,12 +60,12 @@ function toProtoEvent(event: EventData) {
   })
 }
 
-export function createTransport(endpoint: string): Transport {
+export function createTransport(endpoint: string, token: string): Transport {
   if (typeof window === 'undefined') {
     return { async send() { } }
   }
 
-  const { eventsService } = createRpcClients(endpoint)
+  const { eventsService } = createRpcClients(endpoint, token)
 
   return {
     async send(event: EventData) {
