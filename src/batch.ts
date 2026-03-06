@@ -23,12 +23,22 @@ const isLocalStorageAvailable = () => {
 // peekUnlocked() exclude locked events and subsequent lock() calls return [].
 // commit() permanently removes locked events. rollback() releases the lock
 // without removing events. Only one lock can be active at a time.
-const createMemoryQueueStorage = () => {
+const createMemoryQueueStorage = (maxQueueSize: number) => {
   let buffer: Event[] = []
   let locked = 0
 
   return {
-    push: (event: Event) => buffer.push(event),
+    push: (event: Event) => {
+      if (buffer.length >= maxQueueSize) {
+        if (locked >= buffer.length) {
+          console.warn('[Cotton SDK] Queue full and flush in progress, dropping new event')
+          return
+        }
+        console.warn('[Cotton SDK] Queue full, dropping oldest unlocked event')
+        buffer.splice(locked, 1)
+      }
+      buffer.push(event)
+    },
     lock: (limit: number) => {
       if (locked > 0) {
         return []
@@ -42,6 +52,7 @@ const createMemoryQueueStorage = () => {
     },
     peekUnlocked: () => buffer.slice(locked),
     rollback: () => (locked = 0),
+    dispose: () => {},
     get size() {
       return buffer.length - locked
     },
@@ -54,7 +65,21 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
     const raw = localStorage.getItem(key)
     const parsed = raw ? JSON.parse(raw) : null
     if (Array.isArray(parsed)) {
-      buffer = parsed.map((item: unknown) => fromJson(EventSchema, item as any))
+      // Deserialize per-item so valid events survive when individual entries
+      // are corrupt (e.g. after an SDK upgrade changes the proto schema).
+      let dropped = 0
+      buffer = parsed.reduce<Event[]>((acc, item: unknown, i: number) => {
+        try {
+          acc.push(fromJson(EventSchema, item as any))
+        } catch (e) {
+          dropped++
+          console.warn(`[Cotton SDK] Skipping corrupt event at index ${i} during hydration:`, e)
+        }
+        return acc
+      }, [])
+      if (dropped > 0) {
+        console.warn(`[Cotton SDK] Dropped ${dropped} corrupt event(s) during hydration, ${buffer.length} recovered.`)
+      }
     } else {
       if (parsed !== null) {
         console.warn('[Cotton SDK] Corrupt queue in localStorage (not an array), discarding.')
@@ -63,11 +88,12 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
       buffer = []
     }
   } catch (err) {
+    // JSON.parse or localStorage.getItem failed — the entire payload is unreadable.
     console.error('[Cotton SDK] Failed to hydrate queue from localStorage, discarding:', err)
     try {
       localStorage.removeItem(key)
-    } catch {
-      /* best effort */
+    } catch (removeErr) {
+      console.warn('[Cotton SDK] Also failed to remove corrupt queue from localStorage:', removeErr)
     }
     buffer = []
   }
@@ -124,6 +150,13 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
     },
     peekUnlocked: () => buffer.slice(locked),
     rollback: () => (locked = 0),
+    dispose: () => {
+      if (persistTimer !== null) {
+        clearTimeout(persistTimer)
+        persistTimer = null
+      }
+      persist()
+    },
     get size() {
       return buffer.length - locked
     },
@@ -137,7 +170,7 @@ const createDefaultQueueStorage = (key: string, maxQueueSize: number) => {
   console.warn(
     '[Cotton SDK] localStorage not available, using in-memory queue (events will not persist across page loads)'
   )
-  return createMemoryQueueStorage()
+  return createMemoryQueueStorage(maxQueueSize)
 }
 
 export interface BatchConfig {
@@ -161,11 +194,10 @@ const isPermanentError = (err: unknown) => {
   if (err instanceof ConnectError) {
     return PERMANENT_GRPC_CODES.has(err.code)
   }
-  if (err != null && typeof err === 'object' && 'status' in err && typeof (err as Record<string, unknown>).status === 'number') {
-    const status = (err as { status: number }).status
-    return status >= 400 && status < 500
-  }
-  return false
+  // Non-ConnectError errors (TypeError, SyntaxError, etc.) indicate code or
+  // data bugs that retrying cannot fix. Treat them as permanent to avoid
+  // poison events stalling the entire queue in an infinite retry loop.
+  return true
 }
 
 type TransportState = 'idle' | 'flushing' | 'destroyed'
@@ -310,26 +342,28 @@ export const createBatchedTransport = (
     destroy: () => {
       state = 'destroyed'
       clearTimer()
+      storage.dispose()
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('pagehide', beaconFlush)
 
-      // Drain only unlocked events — if a flush is in-flight, its locked
-      // batch will complete normally via the existing promise chain.
+      // If a flush is in-flight, its locked batch will complete normally via
+      // the existing promise chain. Best-effort beacon the unlocked tail.
+      if (storage.size > 0 && storage.lock(storage.size).length === 0) {
+        const unlocked = storage.peekUnlocked()
+        if (unlocked.length > 0) {
+          inner.beacon?.(unlocked)
+        }
+        return
+      }
+
       const remaining = storage.lock(storage.size)
       if (remaining.length > 0) {
         if (inner.beacon?.(remaining)) {
           storage.commit()
-          return
+        } else {
+          // Beacon failed — leave events in the queue for recovery on next init.
+          storage.rollback()
         }
-        // Beacon failed — try async send as last resort. On failure, events
-        // remain in the queue (recoverable from localStorage on next init).
-        inner.sendBatch(remaining)
-          .then(() => storage.commit())
-          .catch(err => {
-            storage.rollback()
-            console.error('[Cotton SDK] Failed to send remaining batch on destroy, events left in queue:', err)
-          })
-        return
       }
     },
   }

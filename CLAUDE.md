@@ -21,7 +21,7 @@ npm run serve          # Serve static files on port 3000
 
 ### Core (`src/cotton.ts`)
 
-`cotton.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport) and iterates over tracker setup functions, each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` uses `toEvent()` from `track.ts` to build a protobuf `Event` enriched with `projectId`, `url`, `referrer`, `userAgent`, and timestamp, then sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy?.()`, and resets state to allow re-initialization.
+`cotton.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport) and iterates over tracker setup functions, each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` uses `toEvent()` from `track.ts` to build a protobuf `Event` enriched with `projectId`, `url`, `referrer`, `userAgent`, and timestamp, then sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, and resets state to allow re-initialization.
 
 ### Event Creation (`src/track.ts`)
 
@@ -29,7 +29,7 @@ npm run serve          # Serve static files on port 3000
 
 ### Transport Layer (`src/transport.ts`)
 
-`createTransport(endpoint, token)` returns an object with `send`, `sendBatch`, `beacon`, and `destroy` methods. It uses ConnectRPC with protobuf serialization via `@buf/fivebits_cotton.bufbuild_es`. The `beacon` method uses `navigator.sendBeacon` with binary protobuf for reliable delivery during page unload (note: `sendBeacon` cannot carry Authorization headers).
+`createTransport(endpoint, token)` returns an object with `send`, `sendBatch`, and `beacon` methods. It uses ConnectRPC with protobuf serialization via `@buf/fivebits_cotton.bufbuild_es`. The `beacon` method uses `navigator.sendBeacon` with binary protobuf for reliable delivery during page unload (note: `sendBeacon` cannot carry Authorization headers).
 
 ### RPC Client (`src/rpc.ts`)
 
@@ -39,10 +39,10 @@ npm run serve          # Serve static files on port 3000
 
 `createBatchedTransport(endpoint, token, projectId, partialConfig?)` is the main transport factory. It creates the inner RPC transport, validates/merges batch config with defaults, and wraps everything in a batched transport that:
 
-- Buffers events in a `QueueStorage` (localStorage-backed with in-memory fallback)
+- Buffers events in a queue storage (localStorage-backed with in-memory fallback)
 - Flushes when batch size is reached (`maxSize`, default 10) or timer expires (`maxWaitMs`, default 5s)
 - Uses `sendBeacon` on `visibilitychange`/`pagehide` for reliable delivery during navigation
-- Classifies errors as permanent (gRPC codes 3/5/6/7/9/12/16, HTTP 4xx) vs transient (retry via rollback)
+- Classifies errors as permanent (non-ConnectError, or ConnectError with gRPC codes 3/5/6/7/9/12/16) vs transient (retry via rollback, only for ConnectError with retryable codes)
 - Has a 3-state lifecycle: `idle` → `flushing` → `idle`, or any → `destroyed`. If destroyed while flushing, the in-flight request completes normally but no further flushes are scheduled.
 - Supports `immediate` flag to attempt direct send for priority events, falling back to the queue on transient errors
 
@@ -75,4 +75,4 @@ Each tracker module exports a `setup*Tracking(track: TrackFn<EventName>)` functi
 - Target/module: ES2020, strict mode, declarations emitted to `dist/`
 - Imports within `src/` use `.js` extensions (required for ES module resolution at runtime)
 - Module resolution: `bundler`
-- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track` and types `CottonConfig`, `CottonEventName`, `InitOptions`, `BatchConfig`. Internal modules (`transport`, `track`, `batch`, `rpc`) are not publicly exported.
+- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track` and types `CottonConfig`, `CottonEventName`, `InitOptions`, `BatchConfig`, `JSONValue`, `TrackOptions`. Internal module functions and implementation details are not publicly exported.
