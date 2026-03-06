@@ -61,7 +61,8 @@ export const init = (projectId: string, options: InitOptions) => {
     samplingRate = Math.max(0, Math.min(1, samplingRate))
   }
 
-  // todo - hash distinctid and set sampledAway in the config or set random on/off per session
+  // TODO(sampling): implement session-level sampling — either hash a device/user ID
+  // for deterministic sampling or use a random per-session coin flip.
 
   const config: CottonConfig = { endpoint: options.endpoint || 'http://localhost:8080', projectId }
 
@@ -114,7 +115,7 @@ export const destroy = () => {
   }
 
   try {
-    state.transport.destroy?.()
+    state.transport.destroy()
   } catch (err) {
     console.error('[Cotton SDK] Error during transport destroy:', err)
   }

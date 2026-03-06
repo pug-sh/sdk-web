@@ -18,6 +18,11 @@ const isLocalStorageAvailable = () => {
   }
 }
 
+// Queue storage uses a two-phase lock/commit/rollback protocol:
+// lock(n) reserves up to n events and returns them; while locked, size and
+// peekUnlocked() exclude locked events and subsequent lock() calls return [].
+// commit() permanently removes locked events. rollback() releases the lock
+// without removing events. Only one lock can be active at a time.
 const createMemoryQueueStorage = () => {
   let buffer: Event[] = []
   let locked = 0
@@ -47,16 +52,14 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
   let buffer: Event[]
   try {
     const raw = localStorage.getItem(key)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) {
-        buffer = parsed.map((item: unknown) => fromJson(EventSchema, item as any))
-      } else {
+    const parsed = raw ? JSON.parse(raw) : null
+    if (Array.isArray(parsed)) {
+      buffer = parsed.map((item: unknown) => fromJson(EventSchema, item as any))
+    } else {
+      if (parsed !== null) {
         console.warn('[Cotton SDK] Corrupt queue in localStorage (not an array), discarding.')
         localStorage.removeItem(key)
-        buffer = []
       }
-    } else {
       buffer = []
     }
   } catch (err) {
@@ -97,13 +100,12 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
   return {
     push: (event: Event) => {
       if (buffer.length >= maxQueueSize) {
-        if (locked < buffer.length) {
-          buffer.splice(locked, 1)
-        } else {
+        if (locked >= buffer.length) {
           console.warn('[Cotton SDK] Queue full and flush in progress, dropping new event')
           return
         }
-        console.warn('[Cotton SDK] Queue full, dropping oldest event')
+        console.warn('[Cotton SDK] Queue full, dropping oldest unlocked event')
+        buffer.splice(locked, 1)
       }
       buffer.push(event)
       debouncedPersist()
@@ -150,6 +152,7 @@ export const DEFAULT_BATCH_CONFIG: BatchConfig = {
   maxQueueSize: 1000,
 }
 
+// gRPC codes that indicate client errors or server rejections that retrying cannot fix.
 // InvalidArgument(3), NotFound(5), AlreadyExists(6), PermissionDenied(7),
 // FailedPrecondition(9), Unimplemented(12), Unauthenticated(16)
 const PERMANENT_GRPC_CODES = new Set([3, 5, 6, 7, 9, 12, 16])
@@ -174,19 +177,15 @@ export const createBatchedTransport = (
   partialConfig?: Partial<BatchConfig>
 ) => {
   const merged = { ...DEFAULT_BATCH_CONFIG, ...partialConfig }
-  if (merged.maxSize < 1) {
-    console.warn('[Cotton SDK] batch.maxSize must be >= 1, using default.')
-  }
-  if (merged.maxWaitMs < 0) {
-    console.warn('[Cotton SDK] batch.maxWaitMs must be >= 0, using default.')
-  }
-  if (merged.maxQueueSize < 1) {
-    console.warn('[Cotton SDK] batch.maxQueueSize must be >= 1, using default.')
+  const validated = (name: string, value: number, min: number, fallback: number) => {
+    if (value >= min) return value
+    console.warn(`[Cotton SDK] batch.${name} must be >= ${min}, using default.`)
+    return fallback
   }
 
-  const maxSize = merged.maxSize >= 1 ? merged.maxSize : DEFAULT_BATCH_CONFIG.maxSize
-  const maxWaitMs = merged.maxWaitMs >= 0 ? merged.maxWaitMs : DEFAULT_BATCH_CONFIG.maxWaitMs
-  const maxQueueSize = merged.maxQueueSize >= 1 ? merged.maxQueueSize : DEFAULT_BATCH_CONFIG.maxQueueSize
+  const maxSize = validated('maxSize', merged.maxSize, 1, DEFAULT_BATCH_CONFIG.maxSize)
+  const maxWaitMs = validated('maxWaitMs', merged.maxWaitMs, 0, DEFAULT_BATCH_CONFIG.maxWaitMs)
+  const maxQueueSize = validated('maxQueueSize', merged.maxQueueSize, 1, DEFAULT_BATCH_CONFIG.maxQueueSize)
   const storageKey = `__cotton_queue_${projectId}__`
 
   const inner = createTransport(endpoint, token)
@@ -211,8 +210,6 @@ export const createBatchedTransport = (
     }, maxWaitMs)
   }
 
-  const sendEvents = (batch: readonly Event[]) => inner.sendBatch(batch as Event[])
-
   const flush = () => {
     if (state !== 'idle') {
       return
@@ -225,7 +222,7 @@ export const createBatchedTransport = (
 
     state = 'flushing'
 
-    sendEvents(batch)
+    inner.sendBatch(batch)
       .then(storage.commit)
       .catch(err => {
         if (isPermanentError(err)) {
@@ -262,6 +259,7 @@ export const createBatchedTransport = (
       }
       return
     }
+    // Drain the entire queue — there may not be another chance to send on page hide.
     const batch = storage.lock(storage.size)
     if (batch.length === 0) {
       return
@@ -325,7 +323,7 @@ export const createBatchedTransport = (
         }
         // Beacon failed — try async send as last resort. On failure, events
         // remain in the queue (recoverable from localStorage on next init).
-        sendEvents(remaining)
+        inner.sendBatch(remaining)
           .then(() => storage.commit())
           .catch(err => {
             storage.rollback()
