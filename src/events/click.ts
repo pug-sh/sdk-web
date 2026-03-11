@@ -1,8 +1,8 @@
-import type { TrackFn } from '../transport.js'
+import type { TrackFn } from '../track.js'
 
-export type ClickEventName = 'click'
+export const eventClick = 'click'
 
-export function setupClickTracking(track: TrackFn<ClickEventName>): () => void {
+export const setupClickTracking = (track: TrackFn<typeof eventClick>) => {
   const onClick = (event: MouseEvent) => {
     if (!event.target) {
       return
@@ -17,12 +17,10 @@ export function setupClickTracking(track: TrackFn<ClickEventName>): () => void {
       y: event.clientY,
     }
 
-    track('click', clickEventDetails)
+    track(eventClick, clickEventDetails)
   }
 
   window.addEventListener('click', onClick, true)
 
-  return () => {
-    window.removeEventListener('click', onClick, true)
-  }
+  return () => window.removeEventListener('click', onClick, true)
 }

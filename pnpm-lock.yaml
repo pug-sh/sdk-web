@@ -7,6 +7,19 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@buf/fivebits_cotton.bufbuild_es':
+        specifier: 2.11.0-20260305141118-7432646b8975.1
+        version: 2.11.0-20260305141118-7432646b8975.1(@bufbuild/protobuf@2.11.0)
+      '@bufbuild/protobuf':
+        specifier: ^2.11.0
+        version: 2.11.0
+      '@connectrpc/connect':
+        specifier: ^2.1.1
+        version: 2.1.1(@bufbuild/protobuf@2.11.0)
+      '@connectrpc/connect-web':
+        specifier: ^2.1.1
+        version: 2.1.1(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
     devDependencies:
       serve:
         specifier: ^14.2.6
@@ -16,6 +29,30 @@ importers:
         version: 5.9.3
 
 packages:
+
+  '@buf/bufbuild_protovalidate.bufbuild_es@2.11.0-20251209175733-2a1774d88802.1':
+    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/bufbuild_protovalidate.bufbuild_es/-/bufbuild_protovalidate.bufbuild_es-2.11.0-20251209175733-2a1774d88802.1.tgz}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.11.0
+
+  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260305141118-7432646b8975.1':
+    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/fivebits_cotton.bufbuild_es/-/fivebits_cotton.bufbuild_es-2.11.0-20260305141118-7432646b8975.1.tgz}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.11.0
+
+  '@bufbuild/protobuf@2.11.0':
+    resolution: {integrity: sha512-sBXGT13cpmPR5BMgHE6UEEfEaShh5Ror6rfN3yEK5si7QVrtZg8LEPQb0VVhiLRUslD2yLnXtnRzG035J/mZXQ==}
+
+  '@connectrpc/connect-web@2.1.1':
+    resolution: {integrity: sha512-J8317Q2MaFRCT1jzVR1o06bZhDIBmU0UAzWx6xOIXzOq8+k71/+k7MUF7AwcBUX+34WIvbm5syRgC5HXQA8fOg==}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
+      '@connectrpc/connect': 2.1.1
+
+  '@connectrpc/connect@2.1.1':
+    resolution: {integrity: sha512-JzhkaTvM73m2K1URT6tv53k2RwngSmCXLZJgK580qNQOXRzZRR/BCMfZw3h+90JpnG6XksP5bYT+cz0rpUzUWQ==}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
 
   '@zeit/schemas@2.36.0':
     resolution: {integrity: sha512-7kjMwcChYEzMKjeex9ZFXkt1AyNov9R5HZtjBKVsmVpw7pa7ZtlCGvCBC2vnnXctaYN+aRI61HjIqeetZW5ROg==}
@@ -342,6 +379,26 @@ packages:
     engines: {node: '>=12'}
 
 snapshots:
+
+  '@buf/bufbuild_protovalidate.bufbuild_es@2.11.0-20251209175733-2a1774d88802.1(@bufbuild/protobuf@2.11.0)':
+    dependencies:
+      '@bufbuild/protobuf': 2.11.0
+
+  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260305141118-7432646b8975.1(@bufbuild/protobuf@2.11.0)':
+    dependencies:
+      '@buf/bufbuild_protovalidate.bufbuild_es': 2.11.0-20251209175733-2a1774d88802.1(@bufbuild/protobuf@2.11.0)
+      '@bufbuild/protobuf': 2.11.0
+
+  '@bufbuild/protobuf@2.11.0': {}
+
+  '@connectrpc/connect-web@2.1.1(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))':
+    dependencies:
+      '@bufbuild/protobuf': 2.11.0
+      '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.11.0)
+
+  '@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0)':
+    dependencies:
+      '@bufbuild/protobuf': 2.11.0
 
   '@zeit/schemas@2.36.0': {}
 

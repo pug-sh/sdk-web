@@ -1,8 +1,9 @@
-import type { TrackFn } from '../transport.js'
+import type { TrackFn } from '../track.js'
 
-export type FormEventName = 'form_start' | 'form_submit'
+export const eventFormStart = 'form_start'
+export const eventFormSubmit = 'form_submit'
 
-export function setupFormTracking(track: TrackFn<FormEventName>): () => void {
+export const setupFormTracking = (track: TrackFn<typeof eventFormStart | typeof eventFormSubmit>) => {
   const formsSeen = new WeakSet<HTMLFormElement>()
 
   // form_start fires on first input, not focus — avoids false positives from tab navigation
@@ -14,7 +15,7 @@ export function setupFormTracking(track: TrackFn<FormEventName>): () => void {
 
     if (form && !formsSeen.has(form)) {
       formsSeen.add(form)
-      track('form_start', {
+      track(eventFormStart, {
         formId: form.id,
         formName: form.name,
       })
@@ -26,7 +27,7 @@ export function setupFormTracking(track: TrackFn<FormEventName>): () => void {
       return
     }
     const form = event.target as HTMLFormElement
-    track('form_submit', {
+    track(eventFormSubmit, {
       action: form.action,
       formId: form.id,
       formName: form.name,

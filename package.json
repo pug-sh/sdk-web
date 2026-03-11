@@ -10,6 +10,12 @@
     "dev": "tsc -w & serve . & sleep 1 && open http://localhost:3000 && wait",
     "serve": "serve . & sleep 1 && open http://localhost:3000 && wait"
   },
+  "dependencies": {
+    "@buf/fivebits_cotton.bufbuild_es": "2.11.0-20260305141118-7432646b8975.1",
+    "@bufbuild/protobuf": "^2.11.0",
+    "@connectrpc/connect": "^2.1.1",
+    "@connectrpc/connect-web": "^2.1.1"
+  },
   "keywords": [
     "analytics",
     "tracking",

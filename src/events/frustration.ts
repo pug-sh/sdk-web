@@ -1,10 +1,9 @@
-import type { TrackFn } from '../transport.js'
+import type { TrackFn } from '../track.js'
 
-export type RageClickEventName = 'rage_click'
-export type DeadClickEventName = 'dead_click'
-export type FrustrationEventName = RageClickEventName | DeadClickEventName
+export const eventRageClick = 'rage_click'
+export const eventDeadClick = 'dead_click'
 
-export function setupRageClickTracking(track: TrackFn<RageClickEventName>): () => void {
+export const setupRageClickTracking = (track: TrackFn<typeof eventRageClick>) => {
   const CLICKS_THRESHOLD = 3
   const TIME_WINDOW = 1000 // ms
   const DISTANCE_THRESHOLD = 40 // pixels
@@ -38,7 +37,7 @@ export function setupRageClickTracking(track: TrackFn<RageClickEventName>): () =
           y: first.y,
         }
 
-        track('rage_click', rageClickEventDetails)
+        track(eventRageClick, rageClickEventDetails)
         clicks = []
         // Drops all clicks during cooldown to avoid duplicate events from the same burst
         cooldownUntil = now + TIME_WINDOW
@@ -48,12 +47,10 @@ export function setupRageClickTracking(track: TrackFn<RageClickEventName>): () =
 
   window.addEventListener('click', onClick, true)
 
-  return () => {
-    window.removeEventListener('click', onClick, true)
-  }
+  return () => window.removeEventListener('click', onClick, true)
 }
 
-export function setupDeadClickTracking(track: TrackFn<DeadClickEventName>): () => void {
+export const setupDeadClickTracking = (track: TrackFn<typeof eventDeadClick>) => {
   let mutationCount = 0
   const pendingTimers = new Set<ReturnType<typeof setTimeout>>()
 
@@ -90,7 +87,7 @@ export function setupDeadClickTracking(track: TrackFn<DeadClickEventName>): () =
           y: event.clientY,
         }
 
-        track('dead_click', deadClickEventDetails)
+        track(eventDeadClick, deadClickEventDetails)
       }
     }, 500)
     pendingTimers.add(timer)

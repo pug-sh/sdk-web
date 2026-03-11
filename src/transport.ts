@@ -1,24 +1,28 @@
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+import { BatchCreateRequestSchema, Event } from '@buf/fivebits_cotton.bufbuild_es/events/v1/events_pb.js'
+import { create, toBinary } from '@bufbuild/protobuf'
+import { createRpcClients } from './rpc.js'
 
-export type TrackFn<T extends string = string> = (eventName: T, properties?: Record<string, JsonValue>) => void
+export const createTransport = (endpoint: string, token: string) => {
+  const { eventsService } = createRpcClients(endpoint, token)
 
-export interface EventData {
-  readonly eventName: string
-  readonly properties: Readonly<Record<string, JsonValue>>
-  readonly timestamp: number
-}
-
-export interface Transport {
-  send(event: EventData): Promise<void>
-  destroy?(): void
-}
-
-// Mock transport for development - replace with ConnectRPC client
-export function createTransport(endpoint: string): Transport {
-  console.log(`Initialized mock transport to ${endpoint}`)
   return {
-    async send(event: EventData) {
-      console.log(`[CottonTransport] Sending event:`, event)
+    send: (event: Event) => eventsService.batchCreate(create(BatchCreateRequestSchema, { events: [event] })),
+    sendBatch: (events: Event[]) => eventsService.batchCreate(create(BatchCreateRequestSchema, { events })),
+    // TODO: sendBeacon cannot set Authorization headers. The backend must authenticate
+    // beacon requests using the projectId in the event body (like Mixpanel/PostHog).
+    beacon: (events: Event[]) => {
+      if (typeof navigator === 'undefined' || !navigator.sendBeacon) {
+        return false
+      }
+      try {
+        const request = create(BatchCreateRequestSchema, { events })
+        const bytes = toBinary(BatchCreateRequestSchema, request)
+        const blob = new Blob([bytes], { type: 'application/proto' })
+        return navigator.sendBeacon(`${endpoint.replace(/\/$/, '')}/events.v1.EventsService/BatchCreate`, blob)
+      } catch (err) {
+        console.error('[Cotton SDK] beacon serialization/send failed:', err)
+        return false
+      }
     },
   }
 }

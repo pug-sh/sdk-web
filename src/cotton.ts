@@ -1,17 +1,19 @@
-import { type ClickEventName, setupClickTracking } from './events/click.js'
-import { type FormEventName, setupFormTracking } from './events/form.js'
-import { type DeadClickEventName, type RageClickEventName, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
-import { type PageViewEventName, setupPageViewTracking } from './events/page_view.js'
-import { type ScrollEventName, setupScrollTracking } from './events/scroll.js'
-import { type EventData, type JsonValue, type Transport, createTransport } from './transport.js'
+import { type BatchConfig, createBatchedTransport } from './batch.js'
+import { eventClick, setupClickTracking } from './events/click.js'
+import { eventFormStart, eventFormSubmit, setupFormTracking } from './events/form.js'
+import { eventDeadClick, eventRageClick, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
+import { eventPageView, setupPageViewTracking } from './events/page_view.js'
+import { eventScroll, setupScrollTracking } from './events/scroll.js'
+import { toEvent, type TrackFn } from './track.js'
 
 export type CottonEventName =
-  | ClickEventName
-  | DeadClickEventName
-  | FormEventName
-  | PageViewEventName
-  | RageClickEventName
-  | ScrollEventName
+  | typeof eventClick
+  | typeof eventDeadClick
+  | typeof eventFormStart
+  | typeof eventFormSubmit
+  | typeof eventPageView
+  | typeof eventRageClick
+  | typeof eventScroll
   | (string & {})
 
 export interface CottonConfig {
@@ -19,18 +21,33 @@ export interface CottonConfig {
   readonly projectId: string
 }
 
+export interface InitOptions {
+  readonly endpoint?: string
+  readonly token: string
+  readonly samplingRate?: number
+  readonly batch?: Partial<BatchConfig>
+}
+
 interface CottonState {
   readonly config: CottonConfig
-  readonly transport: Transport
+  readonly transport: ReturnType<typeof createBatchedTransport>
 }
 
 let state: CottonState | null = null
 let cleanups: { name: string; fn: () => void }[] = []
 
-export function init(projectId: string, options: { endpoint?: string } = {}) {
+export const init = (projectId: string, options: InitOptions) => {
   if (typeof window === 'undefined') {
     console.warn('[Cotton SDK] init() called in a non-browser environment, skipping.')
     return
+  }
+
+  if (!projectId || typeof projectId !== 'string') {
+    throw new Error('[Cotton SDK] projectId is required and must be a non-empty string')
+  }
+
+  if (!options.token || typeof options.token !== 'string') {
+    throw new Error('[Cotton SDK] token is required and must be a non-empty string')
   }
 
   if (state) {
@@ -38,13 +55,22 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
     return
   }
 
-  const config: CottonConfig = {
-    projectId,
-    endpoint: options.endpoint || 'http://localhost:8080',
+  let samplingRate = options.samplingRate ?? 1
+  if (samplingRate < 0 || samplingRate > 1) {
+    console.warn(`[Cotton SDK] samplingRate must be between 0 and 1, got ${samplingRate}. Clamping.`)
+    samplingRate = Math.max(0, Math.min(1, samplingRate))
   }
 
+  // TODO(sampling): implement session-level sampling — either hash a device/user ID
+  // for deterministic sampling or use a random per-session coin flip.
+
+  const config: CottonConfig = { endpoint: options.endpoint || 'http://localhost:8080', projectId }
+
   cleanups = []
-  state = { config, transport: createTransport(config.endpoint) }
+
+  const transport = createBatchedTransport(config.endpoint, options.token, projectId, options.batch)
+
+  state = { config, transport }
 
   const trackers = [
     setupPageViewTracking,
@@ -70,7 +96,11 @@ export function init(projectId: string, options: { endpoint?: string } = {}) {
   }
 }
 
-export function destroy() {
+export const destroy = () => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
   if (!state) {
     console.warn('[Cotton SDK] destroy() called but SDK is not initialized.')
     return
@@ -85,7 +115,7 @@ export function destroy() {
   }
 
   try {
-    state.transport.destroy?.()
+    state.transport.destroy()
   } catch (err) {
     console.error('[Cotton SDK] Error during transport destroy:', err)
   }
@@ -95,7 +125,7 @@ export function destroy() {
 }
 
 /** This function must never throw. Callers (e.g. monkey-patched history.pushState) rely on it being safe. */
-export function track(eventName: CottonEventName, properties: Record<string, JsonValue> = {}) {
+export const track: TrackFn<CottonEventName> = (kind, props, opts) => {
   try {
     if (typeof window === 'undefined') {
       return
@@ -106,22 +136,16 @@ export function track(eventName: CottonEventName, properties: Record<string, Jso
       return
     }
 
-    const event: EventData = {
-      eventName,
-      properties: {
-        ...properties,
-        projectId: state.config.projectId,
-        url: window.location.href,
-        referrer: document.referrer,
-        userAgent: navigator.userAgent,
-      },
-      timestamp: Date.now(),
-    }
-    state.transport.send(event).catch(err => console.error(`[Cotton SDK] Failed to send event "${eventName}":`, err))
+    const event = toEvent(state.config.projectId, kind, props, opts)
+
+    const immediate = opts?.immediate ?? false
+    state.transport
+      .send(event, { immediate })
+      .catch((err: Error) => console.error(`[Cotton SDK] Failed to send event "${kind}":`, err))
   } catch (err) {
     // track() must never throw, but we defensively log the failure
     if (typeof console !== 'undefined' && typeof console.error === 'function') {
-      console.error(`[Cotton SDK] Unexpected error in track("${eventName}"):`, err)
+      console.error(`[Cotton SDK] Unexpected error in track("${kind}"):`, err)
     }
   }
 }
