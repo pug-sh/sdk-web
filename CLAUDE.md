@@ -33,7 +33,7 @@ npm run serve          # Serve static files on port 3000
 
 ### RPC Client (`src/rpc.ts`)
 
-`createRpcClients(endpoint, token)` creates a ConnectRPC transport with a Bearer token interceptor and returns `eventsService` and `profileService` clients. Uses binary format with a 5s default timeout.
+`createRpcClients(endpoint, token)` creates a ConnectRPC transport with a Bearer token interceptor and returns `eventsService` and `profileService` clients. Uses binary format with a 5s default timeout. Auth uses `x-api-key` header (not Bearer).
 
 ### Batching Layer (`src/batch.ts`)
 
