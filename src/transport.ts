@@ -2,13 +2,6 @@ import { BatchCreateRequestSchema, Event } from '@buf/fivebits_cotton.bufbuild_e
 import { create, toBinary } from '@bufbuild/protobuf'
 import { createRpcClients } from './rpc.js'
 
-const toConnectEnvelope = (bytes: Uint8Array) => {
-  const envelope = new Uint8Array(5 + bytes.byteLength)
-  new DataView(envelope.buffer).setUint32(1, bytes.byteLength, false)
-  envelope.set(bytes, 5)
-  return envelope
-}
-
 export const createTransport = (endpoint: string, token: string) => {
   const { eventsService } = createRpcClients(endpoint, token)
 
@@ -21,7 +14,7 @@ export const createTransport = (endpoint: string, token: string) => {
       }
       try {
         const bytes = toBinary(BatchCreateRequestSchema, create(BatchCreateRequestSchema, { events }))
-        const blob = new Blob([toConnectEnvelope(bytes)], { type: 'application/connect+proto' })
+        const blob = new Blob([bytes], { type: 'application/proto' })
         return navigator.sendBeacon(`${endpoint.replace(/\/$/, '')}/events.v1.EventsService/BatchCreate?x-api-key=${encodeURIComponent(token)}`, blob)
       } catch (err) {
         console.error('[Cotton SDK] beacon serialization/send failed:', err)
