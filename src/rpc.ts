@@ -8,7 +8,7 @@ const defaultTimeoutMs = 5000
 export const createRpcClients = (endpoint: string, token: string) => {
   const interceptors: Interceptor[] = [
     next => async req => {
-      req.header.set('Authorization', `Bearer ${token}`)
+      req.header.set('x-api-key', token)
       return next(req)
     },
   ]
