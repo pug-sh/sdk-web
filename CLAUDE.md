@@ -29,7 +29,7 @@ npm run serve          # Serve static files on port 3000
 
 ### Transport Layer (`src/transport.ts`)
 
-`createTransport(endpoint, token)` returns an object with `send`, `sendBatch`, and `beacon` methods. It uses ConnectRPC with protobuf serialization via `@buf/fivebits_cotton.bufbuild_es`. The `beacon` method uses `navigator.sendBeacon` with binary protobuf for reliable delivery during page unload (note: `sendBeacon` cannot carry Authorization headers).
+`createTransport(endpoint, token)` returns an object with `send`, `sendBatch`, and `beacon` methods. It uses ConnectRPC with protobuf serialization via `@buf/fivebits_cotton.bufbuild_es`. The `beacon` method uses `navigator.sendBeacon` with binary protobuf for reliable delivery during page unload; since `sendBeacon` cannot carry request headers, the API key is appended as a `?x-api-key=` query parameter on the beacon URL.
 
 ### RPC Client (`src/rpc.ts`)
 
