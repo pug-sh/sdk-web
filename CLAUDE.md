@@ -25,10 +25,10 @@ npm run serve          # Serve static files on port 3000
 
 ### Auto Properties (`src/parsers.ts`)
 
-Pure utility functions for enriching events with environment context — no browser API access, fully testable in isolation:
+Pure utility functions for enriching events with environment context — no DOM or window API access, fully testable in isolation:
 
-- `parseBrowser(ua)` — detects browser name and major version from UA string. Priority order: Edge (desktop/iOS/Android), Opera, Samsung Browser, UC Browser, Chrome, Firefox, Safari. Falls back to `{ browser: "Other", browserVersion: "" }`.
-- `parseOs(ua)` — detects OS, version, and device type. iOS checked before Mac OS X (iOS UAs contain "Mac OS X"). Detects: iOS, Android, Windows (NT version mapped to readable name), Mac OS X, Linux. Falls back to `{ os: "Other", osVersion: "", deviceType: "Desktop" }`.
+- `parseBrowser(ua)` — detects browser name and first (major) version number from UA string. Priority order: Edge (desktop/iOS/Android), Opera, Samsung Browser, UC Browser, Chrome, Firefox, Safari. Falls back to `{ browser: "Other", browserVersion: "" }`.
+- `parseOs(ua)` — detects OS, version, and device type. iOS (iPhone, iPad, iPod) is checked before Mac OS X because iOS UAs contain both device tokens and "Mac OS X"; iPad classified as Tablet, iPhone/iPod as Mobile. Detects: iOS, Android, Windows (NT version mapped to readable name — NT 10.0 covers both Windows 10 and 11), Mac OS X, Linux. Known limitation: iPadOS 13+ reports a desktop Mac UA, so those devices are classified as Mac OS X/Desktop. Falls back to `{ os: "Other", osVersion: "", deviceType: "Desktop" }`.
 - `parseUtmParams(search)` — extracts UTM campaign params from a query string via `URLSearchParams`. Returns only present, non-empty keys: `$utmSource`, `$utmMedium`, `$utmCampaign`, `$utmContent`, `$utmTerm`.
 
 ### Event Creation (`src/track.ts`)
