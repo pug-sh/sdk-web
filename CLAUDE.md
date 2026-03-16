@@ -23,9 +23,17 @@ npm run serve          # Serve static files on port 3000
 
 `cotton.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport) and iterates over tracker setup functions, each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` uses `toEvent()` from `track.ts` to build a protobuf `Event` enriched with `projectId`, `url`, `referrer`, `userAgent`, and timestamp, then sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, and resets state to allow re-initialization.
 
+### Auto Properties (`src/auto_props.ts`)
+
+Pure utility functions for enriching events with environment context — no browser API access, fully testable in isolation:
+
+- `parseBrowser(ua)` — detects browser name and major version from UA string. Priority order: Edge (desktop/iOS/Android), Opera, Samsung Browser, UC Browser, Chrome, Firefox, Safari. Falls back to `{ browser: "Other", browserVersion: "" }`.
+- `parseOs(ua)` — detects OS, version, and device type. iOS checked before Mac OS X (iOS UAs contain "Mac OS X"). Detects: iOS, Android, Windows (NT version mapped to readable name), Mac OS X, Linux. Falls back to `{ os: "Other", osVersion: "", deviceType: "Desktop" }`.
+- `parseUtmParams(search)` — extracts UTM campaign params from a query string via `URLSearchParams`. Returns only present, non-empty keys: `$utmSource`, `$utmMedium`, `$utmCampaign`, `$utmContent`, `$utmTerm`.
+
 ### Event Creation (`src/track.ts`)
 
-`toEvent(projectId, kind, props?, opts?)` builds a protobuf `Event` object from event kind, properties, and options. It splits properties into `autoProperties` (SDK-injected: projectId, url, referrer, userAgent) and `customProperties` (user-provided), serializing non-string values via `JSON.stringify`. Also exports `TrackFn<T>` (generic callback type used by all trackers) and `TrackOptions` (supports `immediate` and `timestamp`).
+`toEvent(projectId, kind, props?, opts?)` builds a protobuf `Event` object from event kind, properties, and options. It splits properties into `autoProperties` (SDK-injected, all keys prefixed with `$`) and `customProperties` (user-provided), serializing non-string values via `JSON.stringify`. Auto properties include: `$projectId`, `$url`, `$referrer`, `$userAgent`, `$browser`, `$browserVersion`, `$os`, `$osVersion`, `$deviceType`, `$locale`, `$screenWidth`, `$screenHeight`, `$pageTitle`, and any present UTM params. Also exports `TrackFn<T>` (generic callback type used by all trackers) and `TrackOptions` (supports `immediate` and `timestamp`).
 
 ### Transport Layer (`src/transport.ts`)
 
