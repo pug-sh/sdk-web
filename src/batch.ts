@@ -1,5 +1,5 @@
 import { EventSchema, type Event } from '@buf/fivebits_cotton.bufbuild_es/events/v1/events_pb.js'
-import { fromJson, toJson } from '@bufbuild/protobuf'
+import { fromJson, JsonValue, toJson } from '@bufbuild/protobuf'
 import { ConnectError } from '@connectrpc/connect'
 import { createTransport } from './transport.js'
 
@@ -24,7 +24,7 @@ const isLocalStorageAvailable = () => {
 // commit() permanently removes locked events. rollback() releases the lock
 // without removing events. Only one lock can be active at a time.
 const createMemoryQueueStorage = (maxQueueSize: number) => {
-  let buffer: Event[] = []
+  const buffer: Event[] = []
   let locked = 0
 
   return {
@@ -70,7 +70,7 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
       let dropped = 0
       buffer = parsed.reduce<Event[]>((acc, item: unknown, i: number) => {
         try {
-          acc.push(fromJson(EventSchema, item as any))
+          acc.push(fromJson(EventSchema, item as JsonValue))
         } catch (e) {
           dropped++
           console.warn(`[Cotton SDK] Skipping corrupt event at index ${i} during hydration:`, e)
@@ -254,7 +254,8 @@ export const createBatchedTransport = (
 
     state = 'flushing'
 
-    inner.sendBatch(batch)
+    inner
+      .sendBatch(batch)
       .then(storage.commit)
       .catch(err => {
         if (isPermanentError(err)) {

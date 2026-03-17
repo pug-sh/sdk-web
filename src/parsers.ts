@@ -1,4 +1,12 @@
-export type BrowserName = 'Edge' | 'Opera' | 'Samsung Browser' | 'UC Browser' | 'Chrome' | 'Firefox' | 'Safari' | 'Other'
+export type BrowserName =
+  | 'Edge'
+  | 'Opera'
+  | 'Samsung Browser'
+  | 'UC Browser'
+  | 'Chrome'
+  | 'Firefox'
+  | 'Safari'
+  | 'Other'
 export type OsName = 'iOS' | 'Android' | 'Windows' | 'Mac OS X' | 'Linux' | 'Other'
 
 export interface BrowserInfo {
@@ -13,11 +21,11 @@ export interface OsInfo {
 }
 
 export interface UtmParams {
-  readonly $utmSource?: string
-  readonly $utmMedium?: string
-  readonly $utmCampaign?: string
-  readonly $utmContent?: string
-  readonly $utmTerm?: string
+  $utmSource?: string
+  $utmMedium?: string
+  $utmCampaign?: string
+  $utmContent?: string
+  $utmTerm?: string
 }
 
 export const parseBrowser = (ua: string): BrowserInfo => {

@@ -15,7 +15,10 @@ export const createTransport = (endpoint: string, token: string) => {
       try {
         const bytes = toBinary(BatchCreateRequestSchema, create(BatchCreateRequestSchema, { events }))
         const blob = new Blob([bytes], { type: 'application/proto' })
-        return navigator.sendBeacon(`${endpoint.replace(/\/$/, '')}/events.v1.EventsService/BatchCreate?api_key=${encodeURIComponent(token)}`, blob)
+        return navigator.sendBeacon(
+          `${endpoint.replace(/\/$/, '')}/events.v1.EventsService/BatchCreate?api_key=${encodeURIComponent(token)}`,
+          blob
+        )
       } catch (err) {
         console.error('[Cotton SDK] beacon serialization/send failed:', err)
         return false
