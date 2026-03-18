@@ -28,7 +28,21 @@ export interface UtmParams {
   $utmTerm?: string
 }
 
-export const parseBrowser = (ua: string): BrowserInfo => {
+interface UABrand {
+  readonly brand: string
+  readonly version: string
+}
+
+export interface NavigatorLike {
+  readonly userAgent: string
+  readonly userAgentData?: {
+    readonly brands: ReadonlyArray<UABrand>
+    readonly mobile: boolean
+    readonly platform: string
+  }
+}
+
+const parseBrowserFromUA = (ua: string): BrowserInfo => {
   let m: RegExpMatchArray | null
 
   m = ua.match(/(?:Edg|EdgiOS|EdgA)\/([\d]+)/)
@@ -55,6 +69,30 @@ export const parseBrowser = (ua: string): BrowserInfo => {
   return { browser: 'Other', browserVersion: '' }
 }
 
+const parseBrowserFromUAData = (brands: ReadonlyArray<UABrand>): BrowserInfo => {
+  const edge = brands.find(b => b.brand === 'Microsoft Edge')
+  if (edge) return { browser: 'Edge', browserVersion: edge.version }
+
+  const opera = brands.find(b => b.brand === 'Opera')
+  if (opera) return { browser: 'Opera', browserVersion: opera.version }
+
+  const samsung = brands.find(b => b.brand === 'Samsung Internet')
+  if (samsung) return { browser: 'Samsung Browser', browserVersion: samsung.version }
+
+  const chrome = brands.find(b => b.brand === 'Google Chrome')
+  if (chrome) return { browser: 'Chrome', browserVersion: chrome.version }
+
+  const chromium = brands.find(b => b.brand === 'Chromium')
+  if (chromium) return { browser: 'Chrome', browserVersion: chromium.version }
+
+  return { browser: 'Other', browserVersion: '' }
+}
+
+export const parseBrowser = (nav: NavigatorLike): BrowserInfo => {
+  if (nav.userAgentData) return parseBrowserFromUAData(nav.userAgentData.brands)
+  return parseBrowserFromUA(nav.userAgent)
+}
+
 const NT_VERSION_MAP: Record<string, string> = {
   '10.0': '10',
   '6.3': '8.1',
@@ -62,7 +100,7 @@ const NT_VERSION_MAP: Record<string, string> = {
   '6.1': '7',
 }
 
-export const parseOs = (ua: string): OsInfo => {
+const parseOsFromUA = (ua: string): OsInfo => {
   let m: RegExpMatchArray | null
 
   if (/iPhone|iPad|iPod/.test(ua)) {
@@ -94,6 +132,21 @@ export const parseOs = (ua: string): OsInfo => {
   }
 
   return { os: 'Other', osVersion: '', deviceType: 'Desktop' }
+}
+
+const parseOsFromUAData = (platform: string, mobile: boolean): OsInfo => {
+  if (platform === 'iOS') return { os: 'iOS', osVersion: '', deviceType: mobile ? 'Mobile' : 'Tablet' }
+  if (platform === 'Android') return { os: 'Android', osVersion: '', deviceType: mobile ? 'Mobile' : 'Tablet' }
+  if (platform === 'Windows') return { os: 'Windows', osVersion: '', deviceType: 'Desktop' }
+  if (platform === 'macOS') return { os: 'Mac OS X', osVersion: '', deviceType: 'Desktop' }
+  if (platform === 'Linux' || platform === 'Chrome OS') return { os: 'Linux', osVersion: '', deviceType: 'Desktop' }
+
+  return { os: 'Other', osVersion: '', deviceType: mobile ? 'Mobile' : 'Desktop' }
+}
+
+export const parseOs = (nav: NavigatorLike): OsInfo => {
+  if (nav.userAgentData) return parseOsFromUAData(nav.userAgentData.platform, nav.userAgentData.mobile)
+  return parseOsFromUA(nav.userAgent)
 }
 
 export const parseUtmParams = (search: string): UtmParams => {

@@ -22,8 +22,8 @@ const flattenJSONValue = (props: Record<string, JSONValue>) => {
 
 export const toEvent = (projectId: string, kind: string, props?: Record<string, JSONValue>, opts?: TrackOptions) => {
   const occurTime = opts?.timestamp ? timestampFromMs(opts.timestamp) : timestampNow()
-  const { browser, browserVersion } = parseBrowser(navigator.userAgent)
-  const { os, osVersion, deviceType } = parseOs(navigator.userAgent)
+  const { browser, browserVersion } = parseBrowser(navigator)
+  const { os, osVersion, deviceType } = parseOs(navigator)
   const utmProps = parseUtmParams(window.location.search)
 
   return create(EventSchema, {
