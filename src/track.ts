@@ -1,7 +1,7 @@
 import { EventSchema, type Event } from '@buf/fivebits_cotton.bufbuild_es/events/v1/events_pb.js'
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs, timestampNow } from '@bufbuild/protobuf/wkt'
-import { parseBrowser, parseOs, parseUtmParams } from './parsers.js'
+import { type NavInfo, parseUtmParams } from './parsers.js'
 import { SDK_VERSION } from './version.js'
 
 /** Options passed to `track()`. `immediate` bypasses batching for priority events; `timestamp` overrides the default current-time. */
@@ -20,18 +20,19 @@ const flattenJSONValue = (props: Record<string, JSONValue>) => {
   return m
 }
 
-export const toEvent = (projectId: string, kind: string, props?: Record<string, JSONValue>, opts?: TrackOptions) => {
-  const occurTime = opts?.timestamp ? timestampFromMs(opts.timestamp) : timestampNow()
-  const { browser, browserVersion } = parseBrowser(navigator)
-  const { os, osVersion, deviceType } = parseOs(navigator)
-  const utmProps = parseUtmParams(window.location.search)
-
+export const toEvent = (
+  projectId: string,
+  kind: string,
+  navInfo: NavInfo,
+  props?: Record<string, JSONValue>,
+  opts?: TrackOptions
+) => {
+  const { browser, browserVersion, os, osVersion, deviceType } = navInfo
   return create(EventSchema, {
     autoProperties: {
       $projectId: projectId,
       $url: window.location.href,
       $referrer: document.referrer,
-      $userAgent: navigator.userAgent,
       $browser: browser,
       $browserVersion: browserVersion,
       $os: os,
@@ -42,11 +43,11 @@ export const toEvent = (projectId: string, kind: string, props?: Record<string, 
       $screenHeight: String(window.screen.height),
       $pageTitle: document.title,
       $sdkVersion: SDK_VERSION,
-      ...utmProps,
+      ...parseUtmParams(window.location.search),
     },
     customProperties: props ? flattenJSONValue(props) : {},
     kind,
-    occurTime,
+    occurTime: opts?.timestamp ? timestampFromMs(opts.timestamp) : timestampNow(),
   })
 }
 

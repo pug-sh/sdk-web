@@ -9,12 +9,9 @@ export type BrowserName =
   | 'Other'
 export type OsName = 'iOS' | 'Android' | 'Windows' | 'Mac OS X' | 'Linux' | 'Other'
 
-export interface BrowserInfo {
+export interface NavInfo {
   readonly browser: BrowserName
   readonly browserVersion: string
-}
-
-export interface OsInfo {
   readonly os: OsName
   readonly osVersion: string
   readonly deviceType: 'Desktop' | 'Mobile' | 'Tablet'
@@ -33,64 +30,12 @@ interface UABrand {
   readonly version: string
 }
 
-export interface NavigatorLike {
-  readonly userAgent: string
-  readonly userAgentData?: {
-    readonly brands: ReadonlyArray<UABrand>
-    readonly mobile: boolean
-    readonly platform: string
-  }
-}
-
-const parseBrowserFromUA = (ua: string): BrowserInfo => {
-  let m: RegExpMatchArray | null
-
-  m = ua.match(/(?:Edg|EdgiOS|EdgA)\/([\d]+)/)
-  if (m) return { browser: 'Edge', browserVersion: m[1] }
-
-  m = ua.match(/OPR\/([\d]+)/)
-  if (m) return { browser: 'Opera', browserVersion: m[1] }
-
-  m = ua.match(/SamsungBrowser\/([\d]+)/)
-  if (m) return { browser: 'Samsung Browser', browserVersion: m[1] }
-
-  m = ua.match(/UCBrowser\/([\d]+)/)
-  if (m) return { browser: 'UC Browser', browserVersion: m[1] }
-
-  m = ua.match(/(?:Chrome|CriOS)\/([\d]+)/)
-  if (m) return { browser: 'Chrome', browserVersion: m[1] }
-
-  m = ua.match(/(?:Firefox|FxiOS)\/([\d]+)/)
-  if (m) return { browser: 'Firefox', browserVersion: m[1] }
-
-  m = ua.match(/Version\/([\d]+).*Safari/)
-  if (m) return { browser: 'Safari', browserVersion: m[1] }
-
-  return { browser: 'Other', browserVersion: '' }
-}
-
-const parseBrowserFromUAData = (brands: ReadonlyArray<UABrand>): BrowserInfo => {
-  const edge = brands.find(b => b.brand === 'Microsoft Edge')
-  if (edge) return { browser: 'Edge', browserVersion: edge.version }
-
-  const opera = brands.find(b => b.brand === 'Opera')
-  if (opera) return { browser: 'Opera', browserVersion: opera.version }
-
-  const samsung = brands.find(b => b.brand === 'Samsung Internet')
-  if (samsung) return { browser: 'Samsung Browser', browserVersion: samsung.version }
-
-  const chrome = brands.find(b => b.brand === 'Google Chrome')
-  if (chrome) return { browser: 'Chrome', browserVersion: chrome.version }
-
-  const chromium = brands.find(b => b.brand === 'Chromium')
-  if (chromium) return { browser: 'Chrome', browserVersion: chromium.version }
-
-  return { browser: 'Other', browserVersion: '' }
-}
-
-export const parseBrowser = (nav: NavigatorLike): BrowserInfo => {
-  if (nav.userAgentData) return parseBrowserFromUAData(nav.userAgentData.brands)
-  return parseBrowserFromUA(nav.userAgent)
+export interface UAData {
+  readonly brands: ReadonlyArray<UABrand>
+  readonly mobile: boolean
+  readonly platform: string
+  readonly platformVersion?: string
+  readonly fullVersionList?: ReadonlyArray<UABrand>
 }
 
 const NT_VERSION_MAP: Record<string, string> = {
@@ -100,53 +45,144 @@ const NT_VERSION_MAP: Record<string, string> = {
   '6.1': '7',
 }
 
-const parseOsFromUA = (ua: string): OsInfo => {
-  let m: RegExpMatchArray | null
+const UA_BROWSER_PATTERNS: Array<[RegExp, BrowserName]> = [
+  [/(?:Edg|EdgiOS|EdgA)\/([\d]+)/, 'Edge'],
+  [/OPR\/([\d]+)/, 'Opera'],
+  [/SamsungBrowser\/([\d]+)/, 'Samsung Browser'],
+  [/UCBrowser\/([\d]+)/, 'UC Browser'],
+  [/(?:Chrome|CriOS)\/([\d]+)/, 'Chrome'],
+  [/(?:Firefox|FxiOS)\/([\d]+)/, 'Firefox'],
+  [/Version\/([\d]+).*Safari/, 'Safari'],
+]
+
+const BRAND_PRIORITY: Array<[string, BrowserName]> = [
+  ['Microsoft Edge', 'Edge'],
+  ['Opera', 'Opera'],
+  ['Samsung Internet', 'Samsung Browser'],
+  ['Google Chrome', 'Chrome'],
+  ['Chromium', 'Chrome'],
+]
+
+export const parseFromUAData = (uaData: UAData): NavInfo => {
+  const brands = uaData.fullVersionList ?? uaData.brands
+  let browser: BrowserName = 'Other'
+  let browserVersion = ''
+
+  for (const [brandName, browserName] of BRAND_PRIORITY) {
+    const match = brands.find(b => b.brand === brandName)
+    if (match) {
+      browser = browserName
+      browserVersion = match.version
+      break
+    }
+  }
+
+  let os: OsName = 'Other'
+  let osVersion = ''
+  let deviceType: NavInfo['deviceType'] = uaData.mobile ? 'Mobile' : 'Desktop'
+
+  switch (uaData.platform) {
+    case 'iOS':
+      os = 'iOS'
+      osVersion = uaData.platformVersion ?? ''
+      deviceType = uaData.mobile ? 'Mobile' : 'Tablet'
+      break
+    case 'Android':
+      os = 'Android'
+      osVersion = uaData.platformVersion ?? ''
+      deviceType = uaData.mobile ? 'Mobile' : 'Tablet'
+      break
+    case 'Windows':
+      os = 'Windows'
+      osVersion = uaData.platformVersion ? (parseInt(uaData.platformVersion, 10) >= 13 ? '11' : '10') : ''
+      deviceType = 'Desktop'
+      break
+    case 'macOS':
+      os = 'Mac OS X'
+      osVersion = uaData.platformVersion ?? ''
+      deviceType = 'Desktop'
+      break
+    case 'Linux':
+    case 'Chrome OS':
+      os = 'Linux'
+      deviceType = 'Desktop'
+      break
+  }
+
+  return { browser, browserVersion, os, osVersion, deviceType }
+}
+
+export const parseFromUA = (ua: string): NavInfo => {
+  let browser: BrowserName = 'Other'
+  let browserVersion = ''
+
+  for (const [pattern, browserName] of UA_BROWSER_PATTERNS) {
+    const m = ua.match(pattern)
+    if (m) {
+      browser = browserName
+      browserVersion = m[1]
+      break
+    }
+  }
 
   if (/iPhone|iPad|iPod/.test(ua)) {
-    m = ua.match(/OS ([\d_]+)/)
+    const m = ua.match(/OS ([\d_]+)/)
     const osVersion = m ? m[1].replace(/_/g, '.') : ''
     const deviceType = /iPad/.test(ua) ? 'Tablet' : 'Mobile'
-    return { os: 'iOS', osVersion, deviceType }
+    return { browser, browserVersion, os: 'iOS', osVersion, deviceType }
   }
 
-  m = ua.match(/Android ([\d.]+)/)
-  if (m) {
+  const android = ua.match(/Android ([\d.]+)/)
+  if (android) {
     const deviceType = /Mobile/.test(ua) ? 'Mobile' : 'Tablet'
-    return { os: 'Android', osVersion: m[1], deviceType }
+    return { browser, browserVersion, os: 'Android', osVersion: android[1], deviceType }
   }
 
-  m = ua.match(/Windows NT ([\d.]+)/)
-  if (m) {
-    const osVersion = NT_VERSION_MAP[m[1]] ?? m[1]
-    return { os: 'Windows', osVersion, deviceType: 'Desktop' }
+  const windows = ua.match(/Windows NT ([\d.]+)/)
+  if (windows) {
+    return {
+      browser,
+      browserVersion,
+      os: 'Windows',
+      osVersion: NT_VERSION_MAP[windows[1]] ?? windows[1],
+      deviceType: 'Desktop',
+    }
   }
 
-  m = ua.match(/Mac OS X ([\d_.]+)/)
-  if (m) {
-    return { os: 'Mac OS X', osVersion: m[1].replace(/_/g, '.'), deviceType: 'Desktop' }
+  const mac = ua.match(/Mac OS X ([\d_.]+)/)
+  if (mac) {
+    return { browser, browserVersion, os: 'Mac OS X', osVersion: mac[1].replace(/_/g, '.'), deviceType: 'Desktop' }
   }
 
   if (/Linux/.test(ua)) {
-    return { os: 'Linux', osVersion: '', deviceType: 'Desktop' }
+    return { browser, browserVersion, os: 'Linux', osVersion: '', deviceType: 'Desktop' }
   }
 
-  return { os: 'Other', osVersion: '', deviceType: 'Desktop' }
+  return { browser, browserVersion, os: 'Other', osVersion: '', deviceType: 'Desktop' }
 }
 
-const parseOsFromUAData = (platform: string, mobile: boolean): OsInfo => {
-  if (platform === 'iOS') return { os: 'iOS', osVersion: '', deviceType: mobile ? 'Mobile' : 'Tablet' }
-  if (platform === 'Android') return { os: 'Android', osVersion: '', deviceType: mobile ? 'Mobile' : 'Tablet' }
-  if (platform === 'Windows') return { os: 'Windows', osVersion: '', deviceType: 'Desktop' }
-  if (platform === 'macOS') return { os: 'Mac OS X', osVersion: '', deviceType: 'Desktop' }
-  if (platform === 'Linux' || platform === 'Chrome OS') return { os: 'Linux', osVersion: '', deviceType: 'Desktop' }
-
-  return { os: 'Other', osVersion: '', deviceType: mobile ? 'Mobile' : 'Desktop' }
+export interface NavigatorLike {
+  readonly userAgent: string
+  readonly userAgentData?: UAData & {
+    getHighEntropyValues(hints: readonly string[]): Promise<Partial<UAData>>
+  }
 }
 
-export const parseOs = (nav: NavigatorLike): OsInfo => {
-  if (nav.userAgentData) return parseOsFromUAData(nav.userAgentData.platform, nav.userAgentData.mobile)
-  return parseOsFromUA(nav.userAgent)
+export const parseNav = async (nav: NavigatorLike): Promise<NavInfo> => {
+  if (nav.userAgentData) {
+    try {
+      const hints = await nav.userAgentData.getHighEntropyValues(['platformVersion', 'fullVersionList'])
+      const info = parseFromUAData({ ...nav.userAgentData, ...hints })
+      if (info.browser !== 'Other') return info
+    } catch {
+      // fall through
+    }
+  }
+  try {
+    return parseFromUA(nav.userAgent)
+  } catch {
+    return { browser: 'Other', browserVersion: '', os: 'Other', osVersion: '', deviceType: 'Desktop' }
+  }
 }
 
 export const parseUtmParams = (search: string): UtmParams => {

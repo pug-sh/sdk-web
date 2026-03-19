@@ -4,6 +4,7 @@ import { eventFormStart, eventFormSubmit, setupFormTracking } from './events/for
 import { eventDeadClick, eventRageClick, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
 import { eventPageView, setupPageViewTracking } from './events/page_view.js'
 import { eventScroll, setupScrollTracking } from './events/scroll.js'
+import { parseFromUA, parseNav, type NavInfo } from './parsers.js'
 import { toEvent, type TrackFn } from './track.js'
 
 export type CottonEventName =
@@ -35,6 +36,7 @@ interface CottonState {
 
 let state: CottonState | null = null
 let cleanups: { name: string; fn: () => void }[] = []
+let cachedNavInfo: NavInfo | null = null
 
 export const init = (projectId: string, options: InitOptions) => {
   if (typeof window === 'undefined') {
@@ -71,6 +73,11 @@ export const init = (projectId: string, options: InitOptions) => {
   const transport = createBatchedTransport(config.endpoint, options.token, projectId, options.batch)
 
   state = { config, transport }
+  parseNav(navigator)
+    .then(info => {
+      cachedNavInfo = info
+    })
+    .catch(() => {})
 
   const trackers = [
     setupPageViewTracking,
@@ -122,6 +129,7 @@ export const destroy = () => {
 
   cleanups = []
   state = null
+  cachedNavInfo = null
 }
 
 /** This function must never throw. Callers (e.g. monkey-patched history.pushState) rely on it being safe. */
@@ -136,9 +144,9 @@ export const track: TrackFn<CottonEventName> = (kind, props, opts) => {
       return
     }
 
-    const event = toEvent(state.config.projectId, kind, props, opts)
-
     const immediate = opts?.immediate ?? false
+    const navInfo = cachedNavInfo ?? parseFromUA(navigator.userAgent)
+    const event = toEvent(state.config.projectId, kind, navInfo, props, opts)
     state.transport
       .send(event, { immediate })
       .catch((err: Error) => console.error(`[Cotton SDK] Failed to send event "${kind}":`, err))
