@@ -69,7 +69,11 @@ export const init = (projectId: string, options: InitOptions) => {
 
   cleanups = []
 
-  initUserAgentData()
+  try {
+    initUserAgentData()
+  } catch (err) {
+    console.warn('[Cotton SDK] Failed to initialize user agent data:', err)
+  }
 
   const transport = createBatchedTransport(config.endpoint, options.token, projectId, options.batch)
 

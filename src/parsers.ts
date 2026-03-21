@@ -33,34 +33,39 @@ export const initUserAgentData = () => {
 }
 
 export const parseUserAgentData = (): UserAgentProps => {
-  const uad = navigator.userAgentData
-  if (!uad) {
+  try {
+    const uad = navigator.userAgentData
+    if (!uad) {
+      return {}
+    }
+
+    const result: UserAgentProps = {}
+
+    const brand = uad.brands?.find(b => !b.brand.startsWith('Not'))
+    if (brand) {
+      result.$browser = brand.brand
+      result.$browserVersion = brand.version
+    }
+
+    if (uad.platform) {
+      result.$os = uad.platform
+    }
+
+    if (cachedHighEntropy?.osVersion) {
+      result.$osVersion = cachedHighEntropy.osVersion
+    }
+
+    if (cachedHighEntropy?.device) {
+      result.$device = cachedHighEntropy.device
+    }
+
+    result.$mobile = String(uad.mobile)
+
+    return result
+  } catch (err) {
+    console.warn('[Cotton SDK] Failed to parse user agent data:', err)
     return {}
   }
-
-  const result: UserAgentProps = {}
-
-  const brand = uad.brands?.find(b => !b.brand.startsWith('Not'))
-  if (brand) {
-    result.$browser = brand.brand
-    result.$browserVersion = brand.version
-  }
-
-  if (uad.platform) {
-    result.$os = uad.platform
-  }
-
-  if (cachedHighEntropy?.osVersion) {
-    result.$osVersion = cachedHighEntropy.osVersion
-  }
-
-  if (cachedHighEntropy?.device) {
-    result.$device = cachedHighEntropy.device
-  }
-
-  result.$mobile = String(uad.mobile)
-
-  return result
 }
 
 interface UtmParams {
