@@ -1,10 +1,10 @@
 import { type BatchConfig, createBatchedTransport } from './batch.js'
 import { eventClick, setupClickTracking } from './events/click.js'
-import { initUserAgentData } from './parsers.js'
 import { eventFormStart, eventFormSubmit, setupFormTracking } from './events/form.js'
 import { eventDeadClick, eventRageClick, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
 import { eventPageView, setupPageViewTracking } from './events/page_view.js'
 import { eventScroll, setupScrollTracking } from './events/scroll.js'
+import { initUserAgentData } from './parsers.js'
 import { toEvent, type TrackFn } from './track.js'
 
 export type CottonEventName =

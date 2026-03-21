@@ -15,17 +15,20 @@ export const initUserAgentData = () => {
     return
   }
 
-  uad.getHighEntropyValues(['platformVersion', 'model']).then(values => {
-    cachedHighEntropy = {}
-    if (values.platformVersion) {
-      cachedHighEntropy.osVersion = values.platformVersion
-    }
-    if (values.model) {
-      cachedHighEntropy.device = values.model
-    }
-  }).catch(() => {
-    // Best-effort — backend fills in from UA header
-  })
+  uad
+    .getHighEntropyValues(['platformVersion', 'model'])
+    .then(values => {
+      cachedHighEntropy = {}
+      if (values.platformVersion) {
+        cachedHighEntropy.osVersion = values.platformVersion
+      }
+      if (values.model) {
+        cachedHighEntropy.device = values.model
+      }
+    })
+    .catch(() => {
+      // Best-effort — backend fills in from UA header
+    })
 }
 
 export const parseUserAgentData = (): UserAgentProps => {
