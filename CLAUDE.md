@@ -21,20 +21,15 @@ npm run serve          # Serve static files on port 3000
 
 ### Core (`src/cotton.ts`)
 
-`cotton.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport), fires `parseNav(navigator)` asynchronously and caches the result in `cachedNavInfo`, and iterates over tracker setup functions each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` uses `toEvent()` from `track.ts` to build a protobuf `Event`, passing `cachedNavInfo` if resolved or falling back to `parseFromUA(navigator.userAgent)` synchronously, then sends through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, resets state and `cachedNavInfo` to allow re-initialization.
+`cotton.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport) and iterates over tracker setup functions each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` uses `toEvent()` from `track.ts` to build a protobuf `Event` and sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, and resets state to allow re-initialization.
 
 ### Auto Properties (`src/parsers.ts`)
 
-Pure utility functions for enriching events with environment context — no DOM or window API access, fully testable in isolation:
-
-- `parseFromUAData(uaData)` — detects browser, OS, version, and device type from a `UAData` object (UA Client Hints). Uses `fullVersionList` when available (high-entropy), falling back to `brands` (low-entropy). Priority order for browser: Edge, Opera, Samsung Browser, Chrome/Chromium. OS mapped from `platform` string; Windows `platformVersion` major >= 13 maps to `"11"`, else `"10"`. Returns `NavInfo`.
-- `parseFromUA(ua)` — detects browser, OS, version, and device type from a UA string. Priority order for browser: Edge, Opera, Samsung Browser, UC Browser, Chrome, Firefox, Safari. iOS (iPhone, iPad, iPod) is checked before Mac OS X because iOS UAs contain both; Windows NT version mapped to readable name. Known limitation: iPadOS 13+ reports a desktop Mac UA, classified as Mac OS X/Desktop. Returns `NavInfo`.
-- `parseNav(nav)` — async; calls `getHighEntropyValues(['platformVersion', 'fullVersionList'])` when `userAgentData` is available, merges hints into `parseFromUAData`. Falls back to `parseFromUA` if `userAgentData` is unsupported, throws, or `browser` resolves to `'Other'`.
-- `parseUtmParams(search)` — extracts UTM campaign params from a query string via `URLSearchParams`. Returns only present, non-empty keys: `$utmSource`, `$utmMedium`, `$utmCampaign`, `$utmContent`, `$utmTerm`.
+- `parseUtmParams(search)` — extracts UTM campaign params from a query string via `URLSearchParams`. Returns only present, non-empty keys: `$utmSource`, `$utmMedium`, `$utmCampaign`, `$utmContent`, `$utmTerm`. UA parsing (browser, OS, device type) is handled by the backend.
 
 ### Event Creation (`src/track.ts`)
 
-`toEvent(projectId, kind, navInfo, props?, opts?)` builds a protobuf `Event` object from event kind, a pre-resolved `NavInfo`, properties, and options. It splits properties into `autoProperties` (SDK-injected, all keys prefixed with `$`) and `customProperties` (user-provided), serializing non-string values via `JSON.stringify`. Auto properties include: `$projectId`, `$url`, `$referrer`, `$browser`, `$browserVersion`, `$os`, `$osVersion`, `$deviceType`, `$locale`, `$screenWidth`, `$screenHeight`, `$pageTitle`, `$sdkVersion`, and any present UTM params. Also exports `TrackFn<T>` (generic callback type used by all trackers) and `TrackOptions` (supports `immediate` and `timestamp`).
+`toEvent(projectId, kind, props?, opts?)` builds a protobuf `Event` object from event kind, properties, and options. It splits properties into `autoProperties` (SDK-injected, all keys prefixed with `$`) and `customProperties` (user-provided), serializing non-string values via `JSON.stringify`. Auto properties include: `$projectId`, `$url`, `$referrer`, `$locale`, `$screenWidth`, `$screenHeight`, `$pageTitle`, `$sdkVersion`, and any present UTM params. Also exports `TrackFn<T>` (generic callback type used by all trackers) and `TrackOptions` (supports `immediate` and `timestamp`).
 
 ### Transport Layer (`src/transport.ts`)
 
@@ -42,7 +37,7 @@ Pure utility functions for enriching events with environment context — no DOM 
 
 ### RPC Client (`src/rpc.ts`)
 
-`createRpcClients(endpoint, token)` creates a ConnectRPC transport with an `x-api-key` header interceptor and returns `eventsService` and `profileService` clients. Uses binary format with a 5s default timeout.
+`createRpcClients(endpoint, token)` creates a ConnectRPC transport with an `x-api-key` header interceptor and returns an `eventsService` client. Uses binary format with a 5s default timeout.
 
 ### Batching Layer (`src/batch.ts`)
 

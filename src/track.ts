@@ -1,7 +1,7 @@
 import { EventSchema, type Event } from '@buf/fivebits_cotton.bufbuild_es/events/v1/events_pb.js'
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs, timestampNow } from '@bufbuild/protobuf/wkt'
-import { type NavInfo, parseUtmParams } from './parsers.js'
+import { parseUtmParams } from './parsers.js'
 import { SDK_VERSION } from './version.js'
 
 /** Options passed to `track()`. `immediate` bypasses batching for priority events; `timestamp` overrides the default current-time. */
@@ -23,21 +23,14 @@ const flattenJSONValue = (props: Record<string, JSONValue>) => {
 export const toEvent = (
   projectId: string,
   kind: string,
-  navInfo: NavInfo,
   props?: Record<string, JSONValue>,
   opts?: TrackOptions
 ) => {
-  const { browser, browserVersion, os, osVersion, deviceType } = navInfo
   return create(EventSchema, {
     autoProperties: {
       $projectId: projectId,
       $url: window.location.href,
       $referrer: document.referrer,
-      $browser: browser,
-      $browserVersion: browserVersion,
-      $os: os,
-      $osVersion: osVersion,
-      $deviceType: deviceType,
       $locale: navigator.language,
       $screenWidth: String(window.screen.width),
       $screenHeight: String(window.screen.height),

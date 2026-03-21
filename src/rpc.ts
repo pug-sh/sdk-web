@@ -1,5 +1,4 @@
 import { EventsService } from '@buf/fivebits_cotton.bufbuild_es/events/v1/events_pb.js'
-import { ProfilesService } from '@buf/fivebits_cotton.bufbuild_es/profiles/v1/profiles_pb.js'
 import { createClient, type Interceptor } from '@connectrpc/connect'
 import { createConnectTransport } from '@connectrpc/connect-web'
 
@@ -22,6 +21,5 @@ export const createRpcClients = (endpoint: string, token: string) => {
 
   return {
     eventsService: createClient(EventsService, transport),
-    profileService: createClient(ProfilesService, transport),
   }
 }
