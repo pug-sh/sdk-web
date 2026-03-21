@@ -13,6 +13,10 @@ npm run build          # Compile TypeScript to dist/ (tsc)
 npm run watch          # Watch mode TypeScript compilation
 npm run dev            # Watch TypeScript + serve on port 3000
 npm run serve          # Serve static files on port 3000
+npm run lint           # Run ESLint on TypeScript files
+npm run lint:fix       # Run ESLint with auto-fix
+npm run format         # Format source files with Prettier
+npm run format:check   # Check formatting without writing
 ```
 
 **Manual testing:** After building, run `npm run serve` and open `http://localhost:3000`. No automated test framework is configured.
@@ -23,9 +27,9 @@ npm run serve          # Serve static files on port 3000
 
 `cotton.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport) and iterates over tracker setup functions each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` uses `toEvent()` from `track.ts` to build a protobuf `Event` and sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, and resets state to allow re-initialization.
 
-### Auto Properties (`src/parsers.ts`)
+### Parsers (`src/parsers.ts`)
 
-- `parseUtmParams(search)` — extracts UTM campaign params from a query string via `URLSearchParams`. Returns only present, non-empty keys: `$utmSource`, `$utmMedium`, `$utmCampaign`, `$utmContent`, `$utmTerm`. UA parsing (browser, OS, device type) is handled by the backend.
+- `parseUtmParams(search)` — extracts UTM campaign params from a query string via `URLSearchParams`. Returns only UTM params that are present in the query string with non-empty values: `$utmSource`, `$utmMedium`, `$utmCampaign`, `$utmContent`, `$utmTerm`. UA parsing (browser, OS, device type) is handled by the backend.
 
 ### Event Creation (`src/track.ts`)
 
@@ -33,7 +37,7 @@ npm run serve          # Serve static files on port 3000
 
 ### Transport Layer (`src/transport.ts`)
 
-`createTransport(endpoint, token)` returns an object with `send`, `sendBatch`, and `beacon` methods. It uses ConnectRPC with protobuf serialization via `@buf/fivebits_cotton.bufbuild_es`. The `beacon` method uses `navigator.sendBeacon` with binary protobuf for reliable delivery during page unload; since `sendBeacon` cannot carry request headers, the API key is appended as a `?x-api-key=` query parameter on the beacon URL.
+`createTransport(endpoint, token)` returns an object with `send`, `sendBatch`, and `beacon` methods. It uses ConnectRPC with protobuf serialization via `@buf/fivebits_cotton.bufbuild_es`. The `beacon` method uses `navigator.sendBeacon` with binary protobuf for reliable delivery during page unload; since `sendBeacon` cannot carry request headers, the API key is appended as a `?api_key=` query parameter on the beacon URL.
 
 ### RPC Client (`src/rpc.ts`)
 

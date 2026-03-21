@@ -1,5 +1,6 @@
 import { type BatchConfig, createBatchedTransport } from './batch.js'
 import { eventClick, setupClickTracking } from './events/click.js'
+import { initUserAgentData } from './parsers.js'
 import { eventFormStart, eventFormSubmit, setupFormTracking } from './events/form.js'
 import { eventDeadClick, eventRageClick, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
 import { eventPageView, setupPageViewTracking } from './events/page_view.js'
@@ -67,6 +68,8 @@ export const init = (projectId: string, options: InitOptions) => {
   const config: CottonConfig = { endpoint: options.endpoint || 'http://localhost:8080', projectId }
 
   cleanups = []
+
+  initUserAgentData()
 
   const transport = createBatchedTransport(config.endpoint, options.token, projectId, options.batch)
 
