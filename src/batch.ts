@@ -3,20 +3,10 @@ import { fromJson, JsonValue, toJson } from '@bufbuild/protobuf'
 import { ConnectError } from '@connectrpc/connect'
 import { log } from './logger.js'
 import { createTransport } from './transport.js'
+import { isStorageAvailable } from './utils.js'
 
 interface SendOptions {
   readonly immediate?: boolean
-}
-
-const isLocalStorageAvailable = () => {
-  try {
-    const testKey = '__cotton_ls_test__'
-    localStorage.setItem(testKey, '1')
-    localStorage.removeItem(testKey)
-    return true
-  } catch {
-    return false
-  }
 }
 
 // Queue storage uses a two-phase lock/commit/rollback protocol:
@@ -165,7 +155,7 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
 }
 
 const createDefaultQueueStorage = (key: string, maxQueueSize: number) => {
-  if (isLocalStorageAvailable()) {
+  if (isStorageAvailable(localStorage)) {
     return createLocalStorageQueueStorage(key, maxQueueSize)
   }
   log.warn('localStorage not available, using in-memory queue (events will not persist across page loads)')

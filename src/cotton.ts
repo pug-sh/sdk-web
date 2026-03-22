@@ -6,6 +6,7 @@ import { eventPageView, setupPageViewTracking } from './events/page_view.js'
 import { eventScroll, setupScrollTracking } from './events/scroll.js'
 import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
+import { configureSession, destroySession, resolveSessionId, type SessionConfig } from './session.js'
 import { toEvent, type TrackFn } from './track.js'
 
 export type CottonEventName =
@@ -29,6 +30,7 @@ export interface InitOptions {
   readonly samplingRate?: number
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
+  readonly session?: SessionConfig
 }
 
 interface CottonState {
@@ -71,6 +73,8 @@ export const init = (projectId: string, options: InitOptions) => {
   const config: CottonConfig = { endpoint: options.endpoint || 'http://localhost:8080', projectId }
 
   cleanups = []
+
+  if (options.session) configureSession(options.session)
 
   try {
     initUserAgentData()
@@ -134,6 +138,12 @@ export const destroy = () => {
     log.error('Error during transport destroy:', err)
   }
 
+  try {
+    destroySession()
+  } catch (err) {
+    console.error('[Cotton SDK] Error during session destroy:', err)
+  }
+
   cleanups = []
   state = null
 }
@@ -152,7 +162,8 @@ export const track: TrackFn<CottonEventName> = (kind, props, opts) => {
 
     log.debug(`track("${kind}")`)
     const immediate = opts?.immediate ?? false
-    const event = toEvent(state.config.projectId, kind, props, opts)
+    const sessionId = resolveSessionId()
+    const event = toEvent(state.config.projectId, kind, props, opts, sessionId)
     if (state.dryRun) {
       log.debug(`dryRun: would send "${kind}"`)
       return

@@ -20,7 +20,13 @@ const flattenJSONValue = (props: Record<string, JSONValue>) => {
   return m
 }
 
-export const toEvent = (projectId: string, kind: string, props?: Record<string, JSONValue>, opts?: TrackOptions) => {
+export const toEvent = (
+  projectId: string,
+  kind: string,
+  props?: Record<string, JSONValue>,
+  opts?: TrackOptions,
+  sessionId?: string
+) => {
   return create(EventSchema, {
     autoProperties: {
       $projectId: projectId,
@@ -33,6 +39,7 @@ export const toEvent = (projectId: string, kind: string, props?: Record<string, 
       $sdkVersion: SDK_VERSION,
       ...parseUserAgentData(),
       ...parseUtmParams(window.location.search),
+      ...(sessionId ? { $sessionId: sessionId } : {}),
     },
     customProperties: props ? flattenJSONValue(props) : {},
     kind,
