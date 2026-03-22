@@ -4,7 +4,7 @@ import { eventFormStart, eventFormSubmit, setupFormTracking } from './events/for
 import { eventDeadClick, eventRageClick, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
 import { eventPageView, setupPageViewTracking } from './events/page_view.js'
 import { eventScroll, setupScrollTracking } from './events/scroll.js'
-import { log, setDebug } from './logger.js'
+import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
 import { toEvent, type TrackFn } from './track.js'
 
@@ -36,6 +36,7 @@ interface CottonState {
   readonly config: CottonConfig
   readonly transport: ReturnType<typeof createBatchedTransport>
   readonly dryRun: boolean
+  readonly debug: boolean
 }
 
 let state: CottonState | null = null
@@ -73,8 +74,6 @@ export const init = (projectId: string, options: InitOptions) => {
 
   cleanups = []
 
-  setDebug(options.debug ?? false)
-
   try {
     initUserAgentData()
   } catch (err) {
@@ -83,7 +82,7 @@ export const init = (projectId: string, options: InitOptions) => {
 
   const transport = createBatchedTransport(config.endpoint, options.token, projectId, options.batch)
 
-  state = { config, transport, dryRun: options.dryRun ?? false }
+  state = { config, transport, dryRun: options.dryRun ?? false, debug: options.debug ?? false }
 
   if (state.dryRun) log.warn('Dry run mode enabled — events will not be sent.')
 
@@ -110,7 +109,7 @@ export const init = (projectId: string, options: InitOptions) => {
     log.warn(`${failedCount}/${trackers.length} trackers failed to initialize.`)
   }
 
-  log.debug('Initialized.')
+  if (state.debug) log.debug('Initialized.')
 }
 
 export const destroy = () => {
@@ -153,7 +152,7 @@ export const track: TrackFn<CottonEventName> = (kind, props, opts) => {
       return
     }
 
-    log.debug(`track("${kind}")`)
+    if (state.debug) log.debug(`track("${kind}")`)
     const immediate = opts?.immediate ?? false
     if (state.dryRun) return
     const event = toEvent(state.config.projectId, kind, props, opts)
