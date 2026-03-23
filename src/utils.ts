@@ -1,5 +1,16 @@
 export const makeStorageKey = (projectId: string, name: string): string => `__cotton_${projectId}_${name}__`
 
+export const urlBase64ToUint8Array = (base64String: string): Uint8Array<ArrayBuffer> => {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = atob(base64)
+  const bytes = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; i++) {
+    bytes[i] = rawData.charCodeAt(i)
+  }
+  return bytes
+}
+
 export const isStorageAvailable = (): boolean => {
   try {
     const s = localStorage

@@ -81,9 +81,23 @@ Each tracker module exports a `setup*Tracking(track: TrackFn<EventName>)` functi
 | `form.ts`        | `form_start`, `form_submit` | Uses `WeakSet` to deduplicate; listens to input/submit                                                                                                                                                                                                                                                       |
 | `frustration.ts` | `rage_click`, `dead_click`  | Split into `setupRageClickTracking` and `setupDeadClickTracking`. Rage: 3+ clicks in 1s within 40px, 1s cooldown after firing; Dead: no DOM mutation or URL change within 500ms, cleanup disconnects MutationObserver and clears pending timers                                                              |
 
+### Push Notifications (`src/push.ts`, `cotton_sw.js`)
+
+Push is an optional, tree-shakeable module — `cotton.ts` never imports it, so non-push users pay zero bundle cost.
+
+**`src/push.ts`** exports three functions:
+
+- `subscribePush(vapidPublicKey, options)` — registers the service worker at `options.swPath` (default `/cotton_sw.js`), waits for it to become active, subscribes via VAPID, generates/retrieves a persistent `deviceId` from `localStorage` (`cotton_device_id`), and calls `DevicesService.Subscribe`. Requires `options.endpoint` and `options.token` (same values passed to `init()`). Does not read cotton's internal state.
+- `unsubscribePush(options?)` — unsubscribes the push subscription from `pushManager`.
+- `setupNotificationClickTracking(track)` — sets up `notification_click` tracking across two cases: (1) page already open: listens for a `cotton_notification_click` postMessage from the SW; (2) page opened by the click: reads `?cotton_nc=<JSON>` from the URL, calls `track`, strips the param with `history.replaceState`. Returns a cleanup function.
+
+**`cotton_sw.js`** (project root, copy to public dir) — drop-in service worker. Handles `install`/`activate`/`push`/`notificationclick`. On `notificationclick`: if a page is open, sends a postMessage to all open windows; if no page is open, opens `targetUrl?cotton_nc=<data>` so `setupNotificationClickTracking` can read it on load.
+
 ### Utilities (`src/utils.ts`)
 
-`isStorageAvailable(storage)` — probes a `Storage` instance (localStorage or sessionStorage) with a write/remove sentinel. Returns `true` if available, `false` if blocked (private mode, quota, security policy). Used by `session.ts` and `batch.ts`.
+- `makeStorageKey(projectId, name)` — generates a namespaced localStorage key.
+- `urlBase64ToUint8Array(base64String)` — converts a VAPID public key from base64url to `Uint8Array<ArrayBuffer>` for `pushManager.subscribe()`.
+- `isStorageAvailable()` — probes localStorage with a write/remove sentinel. Returns `true` if available, `false` if blocked (private mode, quota, security policy). Used by `session.ts`, `batch.ts`, and `push.ts`.
 
 ### Key Patterns
 
@@ -100,4 +114,4 @@ Each tracker module exports a `setup*Tracking(track: TrackFn<EventName>)` functi
 - Target/module: ES2020, strict mode, declarations emitted to `dist/`
 - Imports within `src/` use `.js` extensions (required for ES module resolution at runtime)
 - Module resolution: `bundler`
-- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track`, `reset`, `rotate` and types `CottonConfig`, `CottonEventName`, `InitOptions`, `BatchConfig`, `JSONValue`, `TrackOptions`, `SessionConfig`. `resolveSessionId`, `configureSession`, `destroySession`, and `resetIdentity` are not re-exported from the barrel.
+- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track`, `reset`, `rotate` and types `CottonConfig`, `CottonEventName`, `InitOptions`, `BatchConfig`, `JSONValue`, `TrackOptions`, `SessionConfig`; and from `push.ts`: `subscribePush`, `unsubscribePush`, `setupNotificationClickTracking`, `PushOptions`. Internal module functions and implementation details are not publicly exported.
