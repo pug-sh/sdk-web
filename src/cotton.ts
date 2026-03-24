@@ -28,7 +28,6 @@ export interface InitOptions {
   readonly token: string
   readonly samplingRate?: number
   readonly batch?: Partial<BatchConfig>
-  readonly debug?: boolean
   readonly dryRun?: boolean
 }
 
@@ -36,7 +35,6 @@ interface CottonState {
   readonly config: CottonConfig
   readonly transport: ReturnType<typeof createBatchedTransport>
   readonly dryRun: boolean
-  readonly debug: boolean
 }
 
 let state: CottonState | null = null
@@ -82,7 +80,7 @@ export const init = (projectId: string, options: InitOptions) => {
 
   const transport = createBatchedTransport(config.endpoint, options.token, projectId, options.batch)
 
-  state = { config, transport, dryRun: options.dryRun ?? false, debug: options.debug ?? false }
+  state = { config, transport, dryRun: options.dryRun ?? false }
 
   if (state.dryRun) log.warn('Dry run mode enabled — events will not be sent.')
 
@@ -109,7 +107,7 @@ export const init = (projectId: string, options: InitOptions) => {
     log.warn(`${failedCount}/${trackers.length} trackers failed to initialize.`)
   }
 
-  if (state.debug) log.debug('Initialized.')
+  log.debug('Initialized.')
 }
 
 export const destroy = () => {
@@ -152,15 +150,15 @@ export const track: TrackFn<CottonEventName> = (kind, props, opts) => {
       return
     }
 
-    if (state.debug) log.debug(`track("${kind}")`)
+    log.debug(`track("${kind}")`)
     const immediate = opts?.immediate ?? false
-    if (state.dryRun) return
     const event = toEvent(state.config.projectId, kind, props, opts)
+    if (state.dryRun) {
+      log.debug(`dryRun: would send "${kind}"`)
+      return
+    }
     state.transport.send(event, { immediate }).catch((err: Error) => log.error(`Failed to send event "${kind}":`, err))
   } catch (err) {
-    // track() must never throw, but we defensively log the failure
-    if (typeof console !== 'undefined' && typeof console.error === 'function') {
-      console.error(`[Cotton SDK] Unexpected error in track("${kind}"):`, err)
-    }
+    log.error(`Unexpected error in track("${kind}"):`, err)
   }
 }

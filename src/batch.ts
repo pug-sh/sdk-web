@@ -1,6 +1,7 @@
 import { EventSchema, type Event } from '@buf/fivebits_cotton.bufbuild_es/events/v1/events_pb.js'
 import { fromJson, JsonValue, toJson } from '@bufbuild/protobuf'
 import { ConnectError } from '@connectrpc/connect'
+import { log } from './logger.js'
 import { createTransport } from './transport.js'
 
 interface SendOptions {
@@ -31,10 +32,10 @@ const createMemoryQueueStorage = (maxQueueSize: number) => {
     push: (event: Event) => {
       if (buffer.length >= maxQueueSize) {
         if (locked >= buffer.length) {
-          console.warn('[Cotton SDK] Queue full and flush in progress, dropping new event')
+          log.warn('Queue full and flush in progress, dropping new event')
           return
         }
-        console.warn('[Cotton SDK] Queue full, dropping oldest unlocked event')
+        log.warn('Queue full, dropping oldest unlocked event')
         buffer.splice(locked, 1)
       }
       buffer.push(event)
@@ -73,27 +74,27 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
           acc.push(fromJson(EventSchema, item as JsonValue))
         } catch (e) {
           dropped++
-          console.warn(`[Cotton SDK] Skipping corrupt event at index ${i} during hydration:`, e)
+          log.warn(`Skipping corrupt event at index ${i} during hydration:`, e)
         }
         return acc
       }, [])
       if (dropped > 0) {
-        console.warn(`[Cotton SDK] Dropped ${dropped} corrupt event(s) during hydration, ${buffer.length} recovered.`)
+        log.warn(`Dropped ${dropped} corrupt event(s) during hydration, ${buffer.length} recovered.`)
       }
     } else {
       if (parsed !== null) {
-        console.warn('[Cotton SDK] Corrupt queue in localStorage (not an array), discarding.')
+        log.warn('Corrupt queue in localStorage (not an array), discarding.')
         localStorage.removeItem(key)
       }
       buffer = []
     }
   } catch (err) {
     // JSON.parse or localStorage.getItem failed — the entire payload is unreadable.
-    console.error('[Cotton SDK] Failed to hydrate queue from localStorage, discarding:', err)
+    log.error('Failed to hydrate queue from localStorage, discarding:', err)
     try {
       localStorage.removeItem(key)
     } catch (removeErr) {
-      console.warn('[Cotton SDK] Also failed to remove corrupt queue from localStorage:', removeErr)
+      log.warn('Also failed to remove corrupt queue from localStorage:', removeErr)
     }
     buffer = []
   }
@@ -106,7 +107,7 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
         localStorage.setItem(key, JSON.stringify(buffer.map(e => toJson(EventSchema, e))))
       }
     } catch (err) {
-      console.warn('[Cotton SDK] localStorage write failed, events may be lost:', err)
+      log.warn('localStorage write failed, events may be lost:', err)
     }
   }
 
@@ -127,10 +128,10 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
     push: (event: Event) => {
       if (buffer.length >= maxQueueSize) {
         if (locked >= buffer.length) {
-          console.warn('[Cotton SDK] Queue full and flush in progress, dropping new event')
+          log.warn('Queue full and flush in progress, dropping new event')
           return
         }
-        console.warn('[Cotton SDK] Queue full, dropping oldest unlocked event')
+        log.warn('Queue full, dropping oldest unlocked event')
         buffer.splice(locked, 1)
       }
       buffer.push(event)
@@ -167,9 +168,7 @@ const createDefaultQueueStorage = (key: string, maxQueueSize: number) => {
   if (isLocalStorageAvailable()) {
     return createLocalStorageQueueStorage(key, maxQueueSize)
   }
-  console.warn(
-    '[Cotton SDK] localStorage not available, using in-memory queue (events will not persist across page loads)'
-  )
+  log.warn('localStorage not available, using in-memory queue (events will not persist across page loads)')
   return createMemoryQueueStorage(maxQueueSize)
 }
 
@@ -211,7 +210,7 @@ export const createBatchedTransport = (
   const merged = { ...DEFAULT_BATCH_CONFIG, ...partialConfig }
   const validated = (name: string, value: number, min: number, fallback: number) => {
     if (value >= min) return value
-    console.warn(`[Cotton SDK] batch.${name} must be >= ${min}, using default.`)
+    log.warn(`batch.${name} must be >= ${min}, using default.`)
     return fallback
   }
 
@@ -260,10 +259,10 @@ export const createBatchedTransport = (
       .catch(err => {
         if (isPermanentError(err)) {
           storage.commit()
-          console.error(`[Cotton SDK] Permanent error, ${batch.length} events dropped (will NOT retry):`, err)
+          log.error(`Permanent error, ${batch.length} events dropped (will NOT retry):`, err)
         } else {
           storage.rollback()
-          console.warn('[Cotton SDK] Transient error sending batch, will retry:', err)
+          log.warn('Transient error sending batch, will retry:', err)
         }
       })
       .finally(() => {
@@ -301,7 +300,7 @@ export const createBatchedTransport = (
       storage.commit()
     } else {
       storage.rollback()
-      console.warn(`[Cotton SDK] sendBeacon failed for ${batch.length} events; they remain queued for next flush.`)
+      log.warn(`sendBeacon failed for ${batch.length} events; they remain queued for next flush.`)
     }
   }
 
@@ -324,7 +323,7 @@ export const createBatchedTransport = (
           await inner.send(event)
         } catch (err) {
           if (isPermanentError(err)) {
-            console.error('[Cotton SDK] Permanent error sending event, dropping:', err)
+            log.error('Permanent error sending event, dropping:', err)
             return
           }
           storage.push(event)
