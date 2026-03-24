@@ -100,4 +100,4 @@ Each tracker module exports a `setup*Tracking(track: TrackFn<EventName>)` functi
 - Target/module: ES2020, strict mode, declarations emitted to `dist/`
 - Imports within `src/` use `.js` extensions (required for ES module resolution at runtime)
 - Module resolution: `bundler`
-- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track`, `rotate` and types `CottonConfig`, `CottonEventName`, `InitOptions`, `BatchConfig`, `JSONValue`, `TrackOptions`, `SessionConfig`. `resolveSessionId`, `configureSession`, and `destroySession` are not re-exported from the barrel.
+- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track`, `reset`, `rotate` and types `CottonConfig`, `CottonEventName`, `InitOptions`, `BatchConfig`, `JSONValue`, `TrackOptions`, `SessionConfig`. `resolveSessionId`, `configureSession`, and `destroySession` are not re-exported from the barrel.

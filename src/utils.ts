@@ -1,8 +1,11 @@
-export const isStorageAvailable = (storage: Storage): boolean => {
+export const makeStorageKey = (projectId: string, name: string): string => `__cotton_${projectId}_${name}__`
+
+export const isStorageAvailable = (): boolean => {
   try {
-    const key = '__cotton_test__'
-    storage.setItem(key, '1')
-    storage.removeItem(key)
+    const s = localStorage
+    const key = makeStorageKey('_', 'probe')
+    s.setItem(key, '1')
+    s.removeItem(key)
     return true
   } catch {
     return false

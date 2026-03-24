@@ -3,7 +3,7 @@ import { fromJson, JsonValue, toJson } from '@bufbuild/protobuf'
 import { ConnectError } from '@connectrpc/connect'
 import { log } from './logger.js'
 import { createTransport } from './transport.js'
-import { isStorageAvailable } from './utils.js'
+import { isStorageAvailable, makeStorageKey } from './utils.js'
 
 interface SendOptions {
   readonly immediate?: boolean
@@ -155,7 +155,7 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
 }
 
 const createDefaultQueueStorage = (key: string, maxQueueSize: number) => {
-  if (isStorageAvailable(localStorage)) {
+  if (isStorageAvailable()) {
     return createLocalStorageQueueStorage(key, maxQueueSize)
   }
   log.warn('localStorage not available, using in-memory queue (events will not persist across page loads)')
@@ -207,7 +207,7 @@ export const createBatchedTransport = (
   const maxSize = validated('maxSize', merged.maxSize, 1, DEFAULT_BATCH_CONFIG.maxSize)
   const maxWaitMs = validated('maxWaitMs', merged.maxWaitMs, 0, DEFAULT_BATCH_CONFIG.maxWaitMs)
   const maxQueueSize = validated('maxQueueSize', merged.maxQueueSize, 1, DEFAULT_BATCH_CONFIG.maxQueueSize)
-  const storageKey = `__cotton_queue_${projectId}__`
+  const storageKey = makeStorageKey(projectId, 'queue')
 
   const inner = createTransport(endpoint, token)
   const storage = createDefaultQueueStorage(storageKey, maxQueueSize)

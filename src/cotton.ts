@@ -145,8 +145,18 @@ export const destroy = () => {
 }
 
 export const reset = () => {
-  if (typeof window === 'undefined') return
-  resetIdentity()
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (!state) {
+    log.warn('reset() called but SDK is not initialized.')
+    return
+  }
+  try {
+    resetIdentity()
+  } catch (err) {
+    log.error('Failed to reset identity:', err)
+  }
 }
 
 /** This function must never throw. Callers (e.g. monkey-patched history.pushState) rely on it being safe. */

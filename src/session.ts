@@ -1,5 +1,5 @@
 import { uuidv7 } from 'uuidv7'
-import { isStorageAvailable } from './utils.js'
+import { isStorageAvailable, makeStorageKey } from './utils.js'
 
 interface StoredState {
   readonly sessionId: string
@@ -10,40 +10,69 @@ interface StoredState {
 
 export interface SessionConfig {
   readonly idleTimeoutMinutes?: number
-  readonly maxSessionSeconds?: number
+  readonly maxSessionMinutes?: number
 }
 
-let idleTimeoutMs = 30 * 60 * 1000
-let maxSessionMs = 24 * 60 * 60 * 1000
-let storageKey = ''
+const DEFAULT_CONFIG = {
+  idleTimeoutMs: 30 * 60 * 1000,
+  maxSessionMs: 1440 * 60 * 1000,
+  storageKey: '',
+}
+
+let config = { ...DEFAULT_CONFIG }
 
 let state: StoredState | null = null
-const storage: Storage | null = isStorageAvailable(localStorage) ? localStorage : null
-if (!storage) console.warn('[Cotton SDK] Storage unavailable; session state will not persist.')
+let storage: Storage | null = null
 
-export const configureSession = (projectId: string, config?: SessionConfig): void => {
-  storageKey = `__cotton_${projectId}__`
-  if (config?.idleTimeoutMinutes) idleTimeoutMs = config.idleTimeoutMinutes * 60 * 1000
-  if (config?.maxSessionSeconds) maxSessionMs = config.maxSessionSeconds * 1000
+export const configureSession = (projectId: string, sessionConfig?: SessionConfig): void => {
+  storage = isStorageAvailable() ? localStorage : null
+  if (!storage) {
+    console.warn('[Cotton SDK] Storage unavailable; session state will not persist.')
+  }
+  config.storageKey = makeStorageKey(projectId, 'session')
+  if (sessionConfig?.idleTimeoutMinutes != null) {
+    if (sessionConfig.idleTimeoutMinutes > 0) {
+      config.idleTimeoutMs = sessionConfig.idleTimeoutMinutes * 60 * 1000
+    } else {
+      console.warn('[Cotton SDK] session.idleTimeoutMinutes must be > 0, using default.')
+    }
+  }
+  if (sessionConfig?.maxSessionMinutes != null) {
+    if (sessionConfig.maxSessionMinutes > 0) {
+      config.maxSessionMs = sessionConfig.maxSessionMinutes * 60 * 1000
+    } else {
+      console.warn('[Cotton SDK] session.maxSessionMinutes must be > 0, using default.')
+    }
+  }
 }
 
 const read = (): StoredState | null => {
-  if (!storage) return null
+  if (!storage) {
+    return null
+  }
   try {
-    const parsed = JSON.parse(storage.getItem(storageKey) ?? 'null')
-    if (parsed && typeof parsed.sessionId === 'string' && typeof parsed.deviceId === 'string') {
+    const parsed = JSON.parse(storage.getItem(config.storageKey) ?? 'null')
+    if (
+      parsed &&
+      typeof parsed.sessionId === 'string' &&
+      typeof parsed.deviceId === 'string' &&
+      typeof parsed.startTime === 'number' &&
+      typeof parsed.lastActivityTime === 'number'
+    ) {
       return parsed as StoredState
     }
-  } catch {
-    // corrupted — start fresh
+  } catch (err) {
+    console.warn('[Cotton SDK] Failed to read session state (starting fresh):', err)
   }
   return null
 }
 
 const write = (s: StoredState): void => {
-  if (!storage) return
+  if (!storage) {
+    return
+  }
   try {
-    storage.setItem(storageKey, JSON.stringify(s))
+    storage.setItem(config.storageKey, JSON.stringify(s))
   } catch (err) {
     console.warn('[Cotton SDK] Failed to persist state to storage:', err)
   }
@@ -51,32 +80,37 @@ const write = (s: StoredState): void => {
 
 const isExpired = (s: StoredState): boolean => {
   const now = Date.now()
-  return now - s.startTime > maxSessionMs || now - s.lastActivityTime > idleTimeoutMs
+  return now - s.startTime > config.maxSessionMs || now - s.lastActivityTime > config.idleTimeoutMs
 }
 
 // Rotates session only — preserves deviceId across sessions
 export const rotate = (): void => {
+  if (!config.storageKey) {
+    console.warn('[Cotton SDK] rotate() called before init().')
+    return
+  }
   const now = Date.now()
-  const deviceId = state?.deviceId ?? uuidv7()
+  const deviceId = state?.deviceId ?? read()?.deviceId ?? uuidv7()
   const next: StoredState = { sessionId: uuidv7(), startTime: now, lastActivityTime: now, deviceId }
   state = next
   write(next)
 }
 
 export const resolveSessionId = (): string => {
-  state = read() ?? state
-  if (!state || isExpired(state)) rotate()
+  try {
+    state = read() ?? state
+    if (!state || isExpired(state)) {
+      rotate()
+    }
 
-  const next = { ...(state as StoredState), lastActivityTime: Date.now() }
-  state = next
-  write(next)
-  return next.sessionId
-}
-
-export const getDeviceId = (): string => {
-  if (!state) state = read()
-  if (!state) rotate()
-  return (state as StoredState).deviceId
+    const next = { ...(state as StoredState), lastActivityTime: Date.now() }
+    state = next
+    write(next)
+    return next.sessionId
+  } catch (err) {
+    console.warn('[Cotton SDK] Failed to resolve session ID:', err)
+    return state?.sessionId ?? 'unknown'
+  }
 }
 
 // Resets both session and device ID — call on logout
@@ -88,9 +122,12 @@ export const resetIdentity = (): void => {
 }
 
 export const destroySession = (): void => {
-  storage?.removeItem(storageKey)
+  try {
+    storage?.removeItem(config.storageKey)
+  } catch (err) {
+    console.warn('[Cotton SDK] Failed to remove session state from storage:', err)
+  }
   state = null
-  storageKey = ''
-  idleTimeoutMs = 30 * 60 * 1000
-  maxSessionMs = 24 * 60 * 60 * 1000
+  storage = null
+  config = { ...DEFAULT_CONFIG }
 }
