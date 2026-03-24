@@ -1,3 +1,4 @@
+import { log } from '../logger.js'
 import type { TrackFn } from '../track.js'
 
 export const eventPageView = 'page_view'
@@ -61,13 +62,13 @@ export const setupPageViewTracking = (track: TrackFn<typeof eventPageView>) => {
       history.pushState = origPush!
     } else {
       orphaned = true
-      console.warn('[Cotton SDK] history.pushState was patched by a third party after init, skipping restore.')
+      log.warn('history.pushState was patched by a third party after init, skipping restore.')
     }
     if (history.replaceState === wrapReplace) {
       history.replaceState = origReplace!
     } else {
       orphaned = true
-      console.warn('[Cotton SDK] history.replaceState was patched by a third party after init, skipping restore.')
+      log.warn('history.replaceState was patched by a third party after init, skipping restore.')
     }
   }
 }

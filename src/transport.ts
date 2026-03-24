@@ -1,5 +1,6 @@
 import { BatchCreateRequestSchema, Event } from '@buf/fivebits_cotton.bufbuild_es/events/v1/events_pb.js'
 import { create, toBinary } from '@bufbuild/protobuf'
+import { log } from './logger.js'
 import { createRpcClients } from './rpc.js'
 
 export const createTransport = (endpoint: string, token: string) => {
@@ -20,7 +21,7 @@ export const createTransport = (endpoint: string, token: string) => {
           blob
         )
       } catch (err) {
-        console.error('[Cotton SDK] beacon serialization/send failed:', err)
+        log.error('beacon serialization/send failed:', err)
         return false
       }
     },

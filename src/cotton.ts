@@ -4,6 +4,7 @@ import { eventFormStart, eventFormSubmit, setupFormTracking } from './events/for
 import { eventDeadClick, eventRageClick, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
 import { eventPageView, setupPageViewTracking } from './events/page_view.js'
 import { eventScroll, setupScrollTracking } from './events/scroll.js'
+import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
 import { toEvent, type TrackFn } from './track.js'
 
@@ -27,11 +28,13 @@ export interface InitOptions {
   readonly token: string
   readonly samplingRate?: number
   readonly batch?: Partial<BatchConfig>
+  readonly dryRun?: boolean
 }
 
 interface CottonState {
   readonly config: CottonConfig
   readonly transport: ReturnType<typeof createBatchedTransport>
+  readonly dryRun: boolean
 }
 
 let state: CottonState | null = null
@@ -39,7 +42,7 @@ let cleanups: { name: string; fn: () => void }[] = []
 
 export const init = (projectId: string, options: InitOptions) => {
   if (typeof window === 'undefined') {
-    console.warn('[Cotton SDK] init() called in a non-browser environment, skipping.')
+    log.warn('init() called in a non-browser environment, skipping.')
     return
   }
 
@@ -52,13 +55,13 @@ export const init = (projectId: string, options: InitOptions) => {
   }
 
   if (state) {
-    console.warn('Cotton SDK already initialized')
+    log.warn('Already initialized.')
     return
   }
 
   let samplingRate = options.samplingRate ?? 1
   if (samplingRate < 0 || samplingRate > 1) {
-    console.warn(`[Cotton SDK] samplingRate must be between 0 and 1, got ${samplingRate}. Clamping.`)
+    log.warn(`samplingRate must be between 0 and 1, got ${samplingRate}. Clamping.`)
     samplingRate = Math.max(0, Math.min(1, samplingRate))
   }
 
@@ -72,12 +75,14 @@ export const init = (projectId: string, options: InitOptions) => {
   try {
     initUserAgentData()
   } catch (err) {
-    console.warn('[Cotton SDK] Failed to initialize user agent data:', err)
+    log.warn('Failed to initialize user agent data:', err)
   }
 
   const transport = createBatchedTransport(config.endpoint, options.token, projectId, options.batch)
 
-  state = { config, transport }
+  state = { config, transport, dryRun: options.dryRun ?? false }
+
+  if (state.dryRun) log.warn('Dry run mode enabled — events will not be sent.')
 
   const trackers = [
     setupPageViewTracking,
@@ -95,12 +100,14 @@ export const init = (projectId: string, options: InitOptions) => {
       cleanups.push({ name: setup.name, fn: cleanup })
     } catch (err) {
       failedCount++
-      console.error(`[Cotton SDK] Failed to initialize tracker "${setup.name}":`, err)
+      log.error(`Failed to initialize tracker "${setup.name}":`, err)
     }
   }
   if (failedCount > 0) {
-    console.warn(`[Cotton SDK] ${failedCount}/${trackers.length} trackers failed to initialize.`)
+    log.warn(`${failedCount}/${trackers.length} trackers failed to initialize.`)
   }
+
+  log.debug('Initialized.')
 }
 
 export const destroy = () => {
@@ -109,7 +116,7 @@ export const destroy = () => {
   }
 
   if (!state) {
-    console.warn('[Cotton SDK] destroy() called but SDK is not initialized.')
+    log.warn('destroy() called but SDK is not initialized.')
     return
   }
 
@@ -117,14 +124,14 @@ export const destroy = () => {
     try {
       cleanup.fn()
     } catch (err) {
-      console.error(`[Cotton SDK] Error during cleanup of "${cleanup.name}":`, err)
+      log.error(`Error during cleanup of "${cleanup.name}":`, err)
     }
   }
 
   try {
     state.transport.destroy()
   } catch (err) {
-    console.error('[Cotton SDK] Error during transport destroy:', err)
+    log.error('Error during transport destroy:', err)
   }
 
   cleanups = []
@@ -139,19 +146,19 @@ export const track: TrackFn<CottonEventName> = (kind, props, opts) => {
     }
 
     if (!state) {
-      console.warn('Cotton SDK not initialized. Call init() first.')
+      log.warn('track() called before init().')
       return
     }
 
+    log.debug(`track("${kind}")`)
     const immediate = opts?.immediate ?? false
     const event = toEvent(state.config.projectId, kind, props, opts)
-    state.transport
-      .send(event, { immediate })
-      .catch((err: Error) => console.error(`[Cotton SDK] Failed to send event "${kind}":`, err))
-  } catch (err) {
-    // track() must never throw, but we defensively log the failure
-    if (typeof console !== 'undefined' && typeof console.error === 'function') {
-      console.error(`[Cotton SDK] Unexpected error in track("${kind}"):`, err)
+    if (state.dryRun) {
+      log.debug(`dryRun: would send "${kind}"`)
+      return
     }
+    state.transport.send(event, { immediate }).catch((err: Error) => log.error(`Failed to send event "${kind}":`, err))
+  } catch (err) {
+    log.error(`Unexpected error in track("${kind}"):`, err)
   }
 }

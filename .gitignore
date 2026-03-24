@@ -79,3 +79,6 @@ config.local.*
 
 # Playwright MCP
 .playwright-mcp/
+
+# PR reviews
+pr-review.md

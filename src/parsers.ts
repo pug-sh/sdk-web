@@ -1,3 +1,5 @@
+import { log } from './logger.js'
+
 interface UserAgentProps {
   $browser?: string
   $browserVersion?: string
@@ -28,7 +30,7 @@ export const initUserAgentData = () => {
       }
     })
     .catch((err: unknown) => {
-      console.warn('[Cotton SDK] High-entropy UA data unavailable:', err)
+      log.warn('High-entropy UA data unavailable:', err)
     })
 }
 
@@ -63,7 +65,7 @@ export const parseUserAgentData = (): UserAgentProps => {
 
     return result
   } catch (err) {
-    console.warn('[Cotton SDK] Failed to parse user agent data:', err)
+    log.warn('Failed to parse user agent data:', err)
     return {}
   }
 }
@@ -108,7 +110,7 @@ export const parseUtmParams = (search: string): UtmParams => {
 
     return result
   } catch (err) {
-    console.warn('[Cotton SDK] Failed to parse UTM params:', err)
+    log.warn('Failed to parse UTM params:', err)
     return {}
   }
 }
