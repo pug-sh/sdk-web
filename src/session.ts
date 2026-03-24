@@ -23,6 +23,8 @@ let config = { ...DEFAULT_CONFIG }
 
 let state: StoredState | null = null
 let storage: Storage | null = null
+let tabCounterKey = ''
+let onPageHide: (() => void) | null = null
 
 export const configureSession = (projectId: string, sessionConfig?: SessionConfig): void => {
   storage = isStorageAvailable() ? localStorage : null
@@ -30,6 +32,33 @@ export const configureSession = (projectId: string, sessionConfig?: SessionConfi
     console.warn('[Cotton SDK] Storage unavailable; session state will not persist.')
   }
   config.storageKey = makeStorageKey(projectId, 'session')
+  tabCounterKey = makeStorageKey(projectId, 'tabs')
+
+  // Track open tab count to detect "all tabs closed then reopened".
+  // Increment on init, decrement on pagehide. If count was 0 when
+  // this tab opened and a previous session exists, rotate.
+  if (storage) {
+    const prevCount = parseInt(storage.getItem(tabCounterKey) ?? '0', 10) || 0
+    storage.setItem(tabCounterKey, String(prevCount + 1))
+
+    if (prevCount === 0) {
+      const existing = read()
+      if (existing) {
+        rotate()
+      }
+    }
+
+    onPageHide = () => {
+      try {
+        const count = parseInt(storage!.getItem(tabCounterKey) ?? '1', 10) || 1
+        storage!.setItem(tabCounterKey, String(Math.max(0, count - 1)))
+      } catch {
+        // storage may be unavailable during unload
+      }
+    }
+    window.addEventListener('pagehide', onPageHide)
+  }
+
   if (sessionConfig?.idleTimeoutMinutes != null) {
     if (sessionConfig.idleTimeoutMinutes > 0) {
       config.idleTimeoutMs = sessionConfig.idleTimeoutMinutes * 60 * 1000
@@ -122,12 +151,18 @@ export const resetIdentity = (): void => {
 }
 
 export const destroySession = (): void => {
+  if (onPageHide) {
+    window.removeEventListener('pagehide', onPageHide)
+    onPageHide = null
+  }
   try {
     storage?.removeItem(config.storageKey)
+    storage?.removeItem(tabCounterKey)
   } catch (err) {
     console.warn('[Cotton SDK] Failed to remove session state from storage:', err)
   }
   state = null
   storage = null
+  tabCounterKey = ''
   config = { ...DEFAULT_CONFIG }
 }
