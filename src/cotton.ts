@@ -6,6 +6,7 @@ import { eventPageView, setupPageViewTracking } from './events/page_view.js'
 import { eventScroll, setupScrollTracking } from './events/scroll.js'
 import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
+import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
 import { toEvent, type TrackFn } from './track.js'
 
 export type CottonEventName =
@@ -29,6 +30,7 @@ export interface InitOptions {
   readonly samplingRate?: number
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
+  readonly session?: SessionConfig
 }
 
 interface CottonState {
@@ -71,6 +73,12 @@ export const init = (projectId: string, options: InitOptions) => {
   const config: CottonConfig = { endpoint: options.endpoint || 'http://localhost:8080', projectId }
 
   cleanups = []
+
+  try {
+    configureSession(projectId, options.session)
+  } catch (err) {
+    console.warn('[Cotton SDK] Failed to configure session tracking:', err)
+  }
 
   try {
     initUserAgentData()
@@ -134,8 +142,25 @@ export const destroy = () => {
     log.error('Error during transport destroy:', err)
   }
 
+  destroySession()
+
   cleanups = []
   state = null
+}
+
+export const reset = () => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (!state) {
+    log.warn('reset() called but SDK is not initialized.')
+    return
+  }
+  try {
+    resetIdentity()
+  } catch (err) {
+    log.error('Failed to reset identity:', err)
+  }
 }
 
 /** This function must never throw. Callers (e.g. monkey-patched history.pushState) rely on it being safe. */
@@ -152,7 +177,7 @@ export const track: TrackFn<CottonEventName> = (kind, props, opts) => {
 
     log.debug(`track("${kind}")`)
     const immediate = opts?.immediate ?? false
-    const event = toEvent(state.config.projectId, kind, props, opts)
+    const event = toEvent(state.config.projectId, kind, resolveSessionId(), props, opts)
     if (state.dryRun) {
       log.debug(`dryRun: would send "${kind}"`)
       return

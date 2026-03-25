@@ -20,7 +20,13 @@ const flattenJSONValue = (props: Record<string, JSONValue>) => {
   return m
 }
 
-export const toEvent = (projectId: string, kind: string, props?: Record<string, JSONValue>, opts?: TrackOptions) => {
+export const toEvent = (
+  projectId: string,
+  kind: string,
+  sessionId: string,
+  props?: Record<string, JSONValue>,
+  opts?: TrackOptions
+) => {
   return create(EventSchema, {
     autoProperties: {
       $projectId: projectId,
@@ -36,6 +42,7 @@ export const toEvent = (projectId: string, kind: string, props?: Record<string, 
     },
     customProperties: props ? flattenJSONValue(props) : {},
     kind,
+    sessionId,
     occurTime: opts?.timestamp ? timestampFromMs(opts.timestamp) : timestampNow(),
   })
 }
