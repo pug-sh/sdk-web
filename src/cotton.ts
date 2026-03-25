@@ -31,6 +31,7 @@ export interface InitOptions {
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
   readonly session?: SessionConfig
+  readonly autoTrack?: boolean
 }
 
 interface CottonState {
@@ -92,14 +93,21 @@ export const init = (projectId: string, options: InitOptions) => {
 
   if (state.dryRun) log.warn('Dry run mode enabled — events will not be sent.')
 
-  const trackers = [
-    setupPageViewTracking,
-    setupClickTracking,
-    setupScrollTracking,
-    setupFormTracking,
-    setupRageClickTracking,
-    setupDeadClickTracking,
-  ]
+  const autoTrack = options.autoTrack ?? true
+  if (!autoTrack) {
+    log.debug('AutoTrack disabled — no trackers initialized.')
+  }
+
+  const trackers = autoTrack
+    ? [
+        setupPageViewTracking,
+        setupClickTracking,
+        setupScrollTracking,
+        setupFormTracking,
+        setupRageClickTracking,
+        setupDeadClickTracking,
+      ]
+    : []
 
   let failedCount = 0
   for (const setup of trackers) {
