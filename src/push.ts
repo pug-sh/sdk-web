@@ -1,9 +1,11 @@
 import { DevicesService, SubscribeRequestSchema } from '@buf/fivebits_cotton.bufbuild_es/devices/v1/devices_pb.js'
 import { create } from '@bufbuild/protobuf'
+import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
 import { createConnectTransport } from '@connectrpc/connect-web'
 import { isStorageAvailable, urlBase64ToUint8Array } from './utils.js'
 
+const validator = createValidator()
 const DEVICE_ID_KEY = 'cotton_device_id'
 const DEFAULT_SW_PATH = '/cotton_sw.js'
 const SW_ACTIVATE_TIMEOUT_MS = 10_000
@@ -51,7 +53,11 @@ const waitForServiceWorkerActive = (reg: ServiceWorkerRegistration): Promise<voi
 
     const timer = setTimeout(() => {
       worker.removeEventListener('statechange', onStateChange)
-      reject(new Error(`[Cotton SDK] Service worker did not activate within ${SW_ACTIVATE_TIMEOUT_MS}ms (state: ${worker.state})`))
+      reject(
+        new Error(
+          `[Cotton SDK] Service worker did not activate within ${SW_ACTIVATE_TIMEOUT_MS}ms (state: ${worker.state})`
+        )
+      )
     }, SW_ACTIVATE_TIMEOUT_MS)
 
     const onStateChange = () => {
@@ -115,6 +121,13 @@ export const subscribePush = async (vapidPublicKey: string, options: PushOptions
     profileId: options.profileId ?? '',
     profileExternalId: options.profileExternalId ?? '',
   })
+
+  const result = validator.validate(SubscribeRequestSchema, request)
+  if (result.kind === 'invalid') {
+    throw new Error(
+      `[Cotton SDK] Invalid subscribe request: ${result.violations.map(v => `${v.field}: ${v.message}`).join(', ')}`
+    )
+  }
 
   await devicesClient.subscribe(request)
 }
