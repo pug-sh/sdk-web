@@ -78,15 +78,25 @@ export type TrackProps<K extends string> = K extends WellKnownEventName
   : Record<string, JSONValue>
 
 export type TrackFn = {
-  <K extends WellKnownEventName>(event: K, props?: WellKnownEventPropsMap[K], options?: TrackOptions): void
+  <K extends WellKnownEventName>(event: K, props?: WellKnownEventPropsMap[K] & Record<string, JSONValue>, options?: TrackOptions): void
   (event: string, props?: Record<string, JSONValue>, options?: TrackOptions): void
 }
 
 const validateWellKnownProps = <Desc extends DescMessage>(
   schema: Desc,
-  data: MessageInitShape<Desc>
+  data: Record<string, unknown>
 ): Record<string, JSONValue> | null => {
-  const msg = create(schema, data)
+  const knownNames = new Set(schema.fields.map(f => f.localName))
+  const knownData: Record<string, unknown> = {}
+  const extraData: Record<string, JSONValue> = {}
+  for (const [k, v] of Object.entries(data)) {
+    if (knownNames.has(k)) {
+      knownData[k] = v
+    } else {
+      extraData[k] = v as JSONValue
+    }
+  }
+  const msg = create(schema, knownData as MessageInitShape<Desc>)
   const result = validator.validate(schema, msg)
   if (result.kind === 'invalid') {
     log.error(
@@ -95,7 +105,7 @@ const validateWellKnownProps = <Desc extends DescMessage>(
     )
     return null
   }
-  return toJson(schema, msg) as Record<string, JSONValue>
+  return { ...(toJson(schema, msg) as Record<string, JSONValue>), ...extraData }
 }
 
 const flattenJSONValue = (props: Record<string, JSONValue>) => {
