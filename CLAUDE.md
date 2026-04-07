@@ -25,7 +25,7 @@ npm run format:check   # Check formatting without writing
 
 ### Core (`src/cotton.ts`)
 
-`cotton.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, `identify(externalId, traits?)`, `reset()`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport, token, dryRun } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport) and iterates over tracker setup functions each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` calls `resolveSessionId()` from `session.ts` on every event, uses `toEvent()` from `track.ts` to build a protobuf `Event`, and sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, `destroySession()`, `destroyProfile()`, nulls the profiles client, and resets state to allow re-initialization.
+`cotton.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, `identify(externalId, traits?)`, `reset()`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport, apiKey, dryRun } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport) and iterates over tracker setup functions each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` calls `resolveSessionId()` from `session.ts` on every event, uses `toEvent()` from `track.ts` to build a protobuf `Event`, and sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, `destroySession()`, `destroyProfile()`, nulls the profiles client, and resets state to allow re-initialization.
 
 ### Parsers (`src/parsers.ts`)
 
@@ -62,15 +62,15 @@ Module-level state, no classes. Manages anonymous profile IDs persisted to `loca
 
 ### Transport Layer (`src/transport.ts`)
 
-`createTransport(endpoint, token)` returns an object with `send`, `sendBatch`, and `beacon` methods. It uses ConnectRPC with protobuf serialization via `@buf/fivebits_cotton.bufbuild_es`. The `beacon` method uses `navigator.sendBeacon` with binary protobuf for reliable delivery during page unload; since `sendBeacon` cannot carry request headers, the API key is appended as a `?api_key=` query parameter on the beacon URL.
+`createTransport(endpoint, apiKey)` returns an object with `send`, `sendBatch`, and `beacon` methods. It uses ConnectRPC with protobuf serialization via `@buf/fivebits_cotton.bufbuild_es`. The `beacon` method uses `navigator.sendBeacon` with binary protobuf for reliable delivery during page unload; since `sendBeacon` cannot carry request headers, the API key is appended as a `?api_key=` query parameter on the beacon URL.
 
 ### RPC Client (`src/rpc.ts`)
 
-`createRpcClients(endpoint, token)` creates a ConnectRPC transport with an `x-api-key` header interceptor and returns an `eventsService` client. Uses binary format with a 5s default timeout.
+`createRpcClients(endpoint, apiKey)` creates a ConnectRPC transport with an `x-api-key` header interceptor and returns an `eventsService` client. Uses binary format with a 5s default timeout.
 
 ### Batching Layer (`src/batch.ts`)
 
-`createBatchedTransport(endpoint, token, projectId, partialConfig?)` is the main transport factory. It creates the inner RPC transport, validates/merges batch config with defaults, and wraps everything in a batched transport that:
+`createBatchedTransport(endpoint, apiKey, projectId, partialConfig?)` is the main transport factory. It creates the inner RPC transport, validates/merges batch config with defaults, and wraps everything in a batched transport that:
 
 - Buffers events in a queue storage (localStorage-backed with in-memory fallback)
 - Flushes when batch size is reached (`maxSize`, default 10) or timer expires (`maxWaitMs`, default 5s)
@@ -99,7 +99,7 @@ Push is an optional, tree-shakeable module — `cotton.ts` never imports it, so 
 
 **`src/push.ts`** exports three functions:
 
-- `subscribePush(vapidPublicKey, options)` — registers the service worker at `options.swPath` (default `/cotton_sw.js`), waits for it to become active, subscribes via VAPID, generates/retrieves a persistent `deviceId` from `localStorage` (`cotton_device_id`), and calls `DevicesService.Subscribe`. Requires `options.endpoint` and `options.token` (same values passed to `init()`). Does not read cotton's internal state.
+- `subscribePush(vapidPublicKey, options)` — registers the service worker at `options.swPath` (default `/cotton_sw.js`), waits for it to become active, subscribes via VAPID, generates/retrieves a persistent `deviceId` from `localStorage` (`cotton_device_id`), and calls `DevicesService.Subscribe`. Requires `options.endpoint` and `options.apiKey` (same values passed to `init()`). Does not read cotton's internal state.
 - `unsubscribePush(options?)` — unsubscribes the push subscription from `pushManager`.
 - `setupNotificationClickTracking(track)` — sets up `notification_click` tracking across two cases: (1) page already open: listens for a `cotton_notification_click` postMessage from the SW; (2) page opened by the click: reads `?cotton_nc=<JSON>` from the URL, calls `track`, strips the param with `history.replaceState`. Returns a cleanup function.
 

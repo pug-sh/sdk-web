@@ -3,8 +3,8 @@ import { create, toBinary } from '@bufbuild/protobuf'
 import { log } from './logger.js'
 import { createRpcClients } from './rpc.js'
 
-export const createTransport = (endpoint: string, token: string) => {
-  const { eventsService } = createRpcClients(endpoint, token)
+export const createTransport = (endpoint: string, apiKey: string) => {
+  const { eventsService } = createRpcClients(endpoint, apiKey)
 
   return {
     send: (event: Event) => eventsService.batchCreate(create(BatchCreateRequestSchema, { events: [event] })),
@@ -17,7 +17,7 @@ export const createTransport = (endpoint: string, token: string) => {
         const bytes = toBinary(BatchCreateRequestSchema, create(BatchCreateRequestSchema, { events }))
         const blob = new Blob([bytes], { type: 'application/proto' })
         return navigator.sendBeacon(
-          `${endpoint.replace(/\/$/, '')}/events.v1.EventsService/BatchCreate?api_key=${encodeURIComponent(token)}`,
+          `${endpoint.replace(/\/$/, '')}/events.v1.EventsService/BatchCreate?api_key=${encodeURIComponent(apiKey)}`,
           blob
         )
       } catch (err) {

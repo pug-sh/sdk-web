@@ -4,8 +4,8 @@ import { createApiTransport } from './api-transport.js'
 
 const defaultTimeoutMs = 5000
 
-export const createRpcClients = (endpoint: string, token: string) => {
-  const transport = createApiTransport(endpoint, token, { defaultTimeoutMs })
+export const createRpcClients = (endpoint: string, apiKey: string) => {
+  const transport = createApiTransport(endpoint, apiKey, { defaultTimeoutMs })
 
   return {
     eventsService: createClient(EventsService, transport),

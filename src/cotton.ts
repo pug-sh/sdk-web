@@ -42,7 +42,7 @@ export interface CottonConfig {
 
 export interface InitOptions {
   readonly endpoint?: string
-  readonly token: string
+  readonly apiKey: string
   readonly samplingRate?: number
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
@@ -53,7 +53,7 @@ export interface InitOptions {
 interface CottonState {
   readonly config: CottonConfig
   readonly transport: ReturnType<typeof createBatchedTransport>
-  readonly token: string
+  readonly apiKey: string
   readonly dryRun: boolean
 }
 
@@ -73,7 +73,7 @@ const getProfilesClient = (): ProfilesClient => {
   if (!state) {
     throw new Error('[Cotton SDK] Cannot create profiles client: SDK not initialized')
   }
-  profilesClient = createClient(ProfilesSDKService, createApiTransport(state.config.endpoint, state.token))
+  profilesClient = createClient(ProfilesSDKService, createApiTransport(state.config.endpoint, state.apiKey))
   return profilesClient
 }
 
@@ -87,8 +87,8 @@ export const init = (projectId: string, options: InitOptions) => {
     throw new Error('[Cotton SDK] projectId is required and must be a non-empty string')
   }
 
-  if (!options.token || typeof options.token !== 'string') {
-    throw new Error('[Cotton SDK] token is required and must be a non-empty string')
+  if (!options.apiKey || typeof options.apiKey !== 'string') {
+    throw new Error('[Cotton SDK] apiKey is required and must be a non-empty string')
   }
 
   if (state) {
@@ -127,9 +127,9 @@ export const init = (projectId: string, options: InitOptions) => {
     log.warn('Failed to initialize user agent data:', err)
   }
 
-  const transport = createBatchedTransport(config.endpoint, options.token, projectId, options.batch)
+  const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
 
-  state = { config, transport, token: options.token, dryRun: options.dryRun ?? false }
+  state = { config, transport, apiKey: options.apiKey, dryRun: options.dryRun ?? false }
 
   if (state.dryRun) {
     log.warn('Dry run mode enabled — events will not be sent.')

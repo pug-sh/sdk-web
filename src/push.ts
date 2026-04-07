@@ -95,7 +95,7 @@ const waitForServiceWorkerActive = (reg: ServiceWorkerRegistration): Promise<voi
 
 export interface PushOptions {
   readonly endpoint: string
-  readonly token: string
+  readonly apiKey: string
   readonly swPath?: string
   readonly profileId?: string
   readonly profileExternalId?: string
@@ -116,8 +116,8 @@ export const subscribePush = async (vapidPublicKey: string, options: PushOptions
   if (!options.endpoint || typeof options.endpoint !== 'string') {
     throw new Error('[Cotton SDK] options.endpoint is required and must be a non-empty string')
   }
-  if (!options.token || typeof options.token !== 'string') {
-    throw new Error('[Cotton SDK] options.token is required and must be a non-empty string')
+  if (!options.apiKey || typeof options.apiKey !== 'string') {
+    throw new Error('[Cotton SDK] options.apiKey is required and must be a non-empty string')
   }
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     throw new Error('[Cotton SDK] Web Push is not supported in this browser')
@@ -140,7 +140,7 @@ export const subscribePush = async (vapidPublicKey: string, options: PushOptions
   const deviceId = getOrCreateDeviceId()
   const pushToken = JSON.stringify(subscription.toJSON())
 
-  const transport = createApiTransport(options.endpoint, options.token)
+  const transport = createApiTransport(options.endpoint, options.apiKey)
   const devicesClient = createClient(DevicesService, transport)
 
   const request = create(SubscribeRequestSchema, {
