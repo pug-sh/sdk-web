@@ -3,7 +3,9 @@ import { log } from './logger.js'
 import { isStorageAvailable, makeStorageKey } from './utils.js'
 
 let storageKey = ''
+let externalIdKey = ''
 let anonymousId = ''
+let externalId = ''
 // In-memory only (not persisted) — resets on every page load so the first identify() always
 // sends anonymousId for server-side merge. The server handles duplicate merges idempotently.
 let identified = false
@@ -15,6 +17,19 @@ export const configureProfile = (projectId: string): void => {
     log.warn('Storage unavailable; anonymous profile ID will not persist across page loads.')
   }
   storageKey = makeStorageKey(projectId, 'profile')
+  externalIdKey = makeStorageKey(projectId, 'external_id')
+
+  // Restore persisted externalId from a previous identify() call.
+  if (storage) {
+    try {
+      const stored = storage.getItem(externalIdKey)
+      if (stored) {
+        externalId = stored
+      }
+    } catch (err) {
+      log.warn('Failed to read external ID from storage:', err)
+    }
+  }
 }
 
 export const getAnonymousId = (): string => {
@@ -50,24 +65,39 @@ export const getAnonymousId = (): string => {
 
 export const isIdentified = (): boolean => identified
 
-export const markIdentified = (): void => {
+export const markIdentified = (id: string): void => {
   identified = true
+  externalId = id
+  if (storage) {
+    try {
+      storage.setItem(externalIdKey, id)
+    } catch (err) {
+      log.warn('Failed to persist external ID to storage:', err)
+    }
+  }
+}
+
+export const resolveDistinctId = (): string => {
+  return externalId || getAnonymousId()
 }
 
 export const clearProfile = (): void => {
   if (storage) {
     try {
       storage.removeItem(storageKey)
+      storage.removeItem(externalIdKey)
     } catch (err) {
       log.warn('Failed to remove profile from storage:', err)
     }
   }
   anonymousId = ''
+  externalId = ''
   identified = false
 }
 
 export const destroyProfile = (): void => {
   clearProfile()
   storageKey = ''
+  externalIdKey = ''
   storage = null
 }

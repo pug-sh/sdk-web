@@ -26,6 +26,7 @@ export const toEvent = (
   projectId: string,
   kind: string,
   sessionId: string,
+  distinctId: string,
   props?: JsonObject,
   opts?: TrackOptions
 ): Event | null => {
@@ -45,6 +46,7 @@ export const toEvent = (
     customProperties: props ? flattenJsonObject(props) : {},
     kind,
     sessionId,
+    distinctId,
     occurTime: opts?.timestamp ? timestampFromMs(opts.timestamp) : timestampNow(),
   })
 

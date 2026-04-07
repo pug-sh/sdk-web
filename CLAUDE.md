@@ -48,17 +48,18 @@ Storage availability is checked during `configureSession()` via `isStorageAvaila
 
 Module-level state, no classes. Manages anonymous profile IDs persisted to `localStorage` under `__cotton_<projectId>_profile__`. Anonymous IDs are prefixed with `"anon-"` (required by the server for merge operations).
 
-- `configureProfile(projectId)` — called by `cotton.init()`. Sets up storage and storage key.
+- `configureProfile(projectId)` — called by `cotton.init()`. Sets up storage, storage keys, and restores any persisted `externalId` from a previous `identify()` call.
 - `getAnonymousId()` — returns or creates a persistent `"anon-<uuidv7>"` ID.
-- `isIdentified()` / `markIdentified()` — tracks whether `identify()` has been called since the last page load or `reset()`. Controls whether `anonymousId` is sent on the next `identify()` RPC (first call triggers server-side merge of anonymous → identified profile).
-- `clearProfile()` — clears storage and resets identified state. Called by `cotton.reset()`.
+- `resolveDistinctId()` — returns `externalId` if identified, otherwise the anonymous ID. Called by `track()` to set the `distinctId` field on every event.
+- `isIdentified()` / `markIdentified(id)` — tracks whether `identify()` has been called since the last page load or `reset()`. `markIdentified` persists the `externalId` to localStorage so it survives page reloads. Controls whether `anonymousId` is sent on the next `identify()` RPC (first call triggers server-side merge of anonymous → identified profile).
+- `clearProfile()` — clears storage (both anonymous ID and external ID) and resets identified state. Called by `cotton.reset()`.
 - `destroyProfile()` — clears profile and resets all module state. Called by `cotton.destroy()`.
 
 `identify(externalId, traits?)` in `cotton.ts` sends the `ProfilesSDKService.Identify` RPC. On the first call, it includes `anonymousId` so the server merges the anonymous profile into the identified one. Subsequent calls send an empty `anonymousId` (trait-only updates). The profiles RPC client is lazy-created on first `identify()` call. Respects `dryRun` mode.
 
 ### Event Creation (`src/track.ts`)
 
-`toEvent(projectId, kind, sessionId, props?, opts?)` builds a protobuf `Event` object from event kind, properties, and options. It splits properties into `autoProperties` (SDK-injected, all keys prefixed with `$`) and `customProperties` (user-provided), serializing non-string values via `JSON.stringify`. Auto properties include: `$projectId`, `$url`, `$referrer`, `$locale`, `$screenWidth`, `$screenHeight`, `$pageTitle`, `$sdkVersion`, UA Client Hints when available (`$browser`, `$browserVersion`, `$os`, `$osVersion`, `$device`, `$mobile`), and any present UTM params. `sessionId` is set as a top-level field on the `Event` proto (its own ClickHouse column), not a property. Also exports `TrackFn<T>` (generic callback type used by all trackers) and `TrackOptions` (supports `immediate` and `timestamp`).
+`toEvent(projectId, kind, sessionId, distinctId, props?, opts?)` builds a protobuf `Event` object from event kind, properties, and options. It splits properties into `autoProperties` (SDK-injected, all keys prefixed with `$`) and `customProperties` (user-provided), serializing non-string values via `JSON.stringify`. Auto properties include: `$projectId`, `$url`, `$referrer`, `$locale`, `$screenWidth`, `$screenHeight`, `$pageTitle`, `$sdkVersion`, UA Client Hints when available (`$browser`, `$browserVersion`, `$os`, `$osVersion`, `$device`, `$mobile`), and any present UTM params. `sessionId` and `distinctId` are set as top-level fields on the `Event` proto (their own ClickHouse columns), not properties. `distinctId` is the profile identifier — `externalId` after `identify()`, otherwise the anonymous ID. Also exports `TrackFn<T>` (generic callback type used by all trackers) and `TrackOptions` (supports `immediate` and `timestamp`).
 
 ### Transport Layer (`src/transport.ts`)
 

@@ -21,6 +21,7 @@ import {
   getAnonymousId,
   isIdentified,
   markIdentified,
+  resolveDistinctId,
 } from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
 import { toEvent, type TrackFn } from './track.js'
@@ -260,7 +261,7 @@ export const identify = async (externalId: string, traits?: JsonObject): Promise
 
   try {
     await client.identify(req)
-    markIdentified()
+    markIdentified(externalId)
   } catch (err) {
     log.error(`Failed to identify "${externalId}":`, err)
     throw err
@@ -281,7 +282,7 @@ export const track: TrackFn<CottonEventName> = (kind, props, opts) => {
 
     log.debug(`track("${kind}")`)
     const immediate = opts?.immediate ?? false
-    const event = toEvent(state.config.projectId, kind, resolveSessionId(), props, opts)
+    const event = toEvent(state.config.projectId, kind, resolveSessionId(), resolveDistinctId(), props, opts)
     if (!event) {
       return
     }
