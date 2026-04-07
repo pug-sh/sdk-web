@@ -57,6 +57,8 @@ interface CottonState {
   readonly dryRun: boolean
 }
 
+const validator = createValidator()
+
 let state: CottonState | null = null
 let cleanups: { name: string; fn: () => void }[] = []
 
@@ -64,12 +66,12 @@ type ProfilesClient = ReturnType<typeof createClient<typeof ProfilesSDKService>>
 
 let profilesClient: ProfilesClient | null = null
 
-const getProfilesClient = (): ProfilesClient | null => {
+const getProfilesClient = (): ProfilesClient => {
   if (profilesClient) {
     return profilesClient
   }
   if (!state) {
-    return null
+    throw new Error('[Cotton SDK] Cannot create profiles client: SDK not initialized')
   }
   profilesClient = createClient(ProfilesSDKService, createApiTransport(state.config.endpoint, state.token))
   return profilesClient
@@ -219,10 +221,14 @@ export const reset = () => {
   } catch (err) {
     log.error('Failed to clear profile:', err)
   }
+  // profilesClient is intentionally preserved — it holds no per-user or per-session state,
+  // only the endpoint and API key from init().
 }
 
+/** Throws on invalid input (sync) and on RPC failure (async). Callers must handle errors. */
 export const identify = async (externalId: string, traits?: JsonObject): Promise<void> => {
   if (typeof window === 'undefined') {
+    log.warn('identify() called in a non-browser environment, skipping.')
     return
   }
   if (!state) {
@@ -230,8 +236,7 @@ export const identify = async (externalId: string, traits?: JsonObject): Promise
     return
   }
   if (!externalId || typeof externalId !== 'string') {
-    log.warn('identify() requires a non-empty externalId string.')
-    return
+    throw new Error('[Cotton SDK] identify() requires a non-empty externalId string')
   }
   if (state.dryRun) {
     log.debug('dryRun: would identify')
@@ -239,18 +244,14 @@ export const identify = async (externalId: string, traits?: JsonObject): Promise
   }
 
   const client = getProfilesClient()
-  if (!client) {
-    log.error('Failed to create profiles client.')
-    return
-  }
 
   const req = create(IdentifyRequestSchema, {
     externalId,
-    traits: traits,
+    traits,
     anonymousId: isIdentified() ? '' : getAnonymousId(),
   })
 
-  const validation = createValidator().validate(IdentifyRequestSchema, req)
+  const validation = validator.validate(IdentifyRequestSchema, req)
   if (validation.kind === 'invalid') {
     throw new Error(
       `[Cotton SDK] Invalid identify request: ${validation.violations.map(v => `${v.field}: ${v.message}`).join(', ')}`

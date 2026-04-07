@@ -25,7 +25,7 @@ npm run format:check   # Check formatting without writing
 
 ### Core (`src/cotton.ts`)
 
-`cotton.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport) and iterates over tracker setup functions each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` calls `resolveSessionId()` from `session.ts` on every event, uses `toEvent()` from `track.ts` to build a protobuf `Event`, and sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, `destroySession()`, and resets state to allow re-initialization.
+`cotton.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, `identify(externalId, traits?)`, `reset()`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport, token, dryRun } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport) and iterates over tracker setup functions each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` calls `resolveSessionId()` from `session.ts` on every event, uses `toEvent()` from `track.ts` to build a protobuf `Event`, and sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, `destroySession()`, `destroyProfile()`, nulls the profiles client, and resets state to allow re-initialization.
 
 ### Parsers (`src/parsers.ts`)
 
@@ -50,11 +50,11 @@ Module-level state, no classes. Manages anonymous profile IDs persisted to `loca
 
 - `configureProfile(projectId)` — called by `cotton.init()`. Sets up storage and storage key.
 - `getAnonymousId()` — returns or creates a persistent `"anon-<uuidv7>"` ID.
-- `isIdentified()` / `markIdentified()` — tracks whether `identify()` has been called this session. Controls whether `anonymousId` is sent on the next `identify()` RPC (first call triggers server-side merge of anonymous → identified profile).
+- `isIdentified()` / `markIdentified()` — tracks whether `identify()` has been called since the last page load or `reset()`. Controls whether `anonymousId` is sent on the next `identify()` RPC (first call triggers server-side merge of anonymous → identified profile).
 - `clearProfile()` — clears storage and resets identified state. Called by `cotton.reset()`.
 - `destroyProfile()` — clears profile and resets all module state. Called by `cotton.destroy()`.
 
-`identify(externalId, traits?)` in `cotton.ts` sends the `ProfilesSDKService.Identify` RPC. On the first call, it includes `anonymousId` so the server merges the anonymous profile into the identified one. Subsequent calls omit `anonymousId` (trait-only updates). The profiles RPC client is lazy-created on first `identify()` call. Respects `dryRun` mode.
+`identify(externalId, traits?)` in `cotton.ts` sends the `ProfilesSDKService.Identify` RPC. On the first call, it includes `anonymousId` so the server merges the anonymous profile into the identified one. Subsequent calls send an empty `anonymousId` (trait-only updates). The profiles RPC client is lazy-created on first `identify()` call. Respects `dryRun` mode.
 
 ### Event Creation (`src/track.ts`)
 
@@ -109,7 +109,7 @@ Push is an optional, tree-shakeable module — `cotton.ts` never imports it, so 
 
 - `makeStorageKey(projectId, name)` — generates a namespaced localStorage key.
 - `urlBase64ToUint8Array(base64String)` — converts a VAPID public key from base64url to `Uint8Array<ArrayBuffer>` for `pushManager.subscribe()`.
-- `isStorageAvailable()` — probes localStorage with a write/remove sentinel. Returns `true` if available, `false` if blocked (private mode, quota, security policy). Used by `session.ts`, `batch.ts`, and `push.ts`.
+- `isStorageAvailable()` — probes localStorage with a write/remove sentinel. Returns `true` if available, `false` if blocked (private mode, quota, security policy). Used by `session.ts`, `batch.ts`, `profile.ts`, and `push.ts`.
 
 ### Key Patterns
 
@@ -126,4 +126,4 @@ Push is an optional, tree-shakeable module — `cotton.ts` never imports it, so 
 - Target/module: ES2020, strict mode, declarations emitted to `dist/`
 - Imports within `src/` use `.js` extensions (required for ES module resolution at runtime)
 - Module resolution: `bundler`
-- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track`, `reset`, `identify`, `rotate` and types `CottonConfig`, `CottonEventName`, `InitOptions`, `BatchConfig`, `JSONValue`, `TrackOptions`, `SessionConfig`; and from `push.ts`: `subscribePush`, `unsubscribePush`, `setupNotificationClickTracking`, `PushOptions`. Internal module functions and implementation details are not publicly exported.
+- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track`, `reset`, `identify`, `rotate` and types `CottonConfig`, `CottonEventName`, `InitOptions`, `BatchConfig`, `TrackOptions`, `SessionConfig`; re-exports `JsonValue`, `JsonObject` from `@bufbuild/protobuf`; and from `push.ts`: `subscribePush`, `unsubscribePush`, `setupNotificationClickTracking`, `PushOptions`. Internal module functions and implementation details are not publicly exported.

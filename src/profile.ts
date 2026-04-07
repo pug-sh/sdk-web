@@ -4,11 +4,16 @@ import { isStorageAvailable, makeStorageKey } from './utils.js'
 
 let storageKey = ''
 let anonymousId = ''
+// In-memory only (not persisted) — resets on every page load so the first identify() always
+// sends anonymousId for server-side merge. The server handles duplicate merges idempotently.
 let identified = false
 let storage: Storage | null = null
 
 export const configureProfile = (projectId: string): void => {
   storage = isStorageAvailable() ? localStorage : null
+  if (!storage) {
+    log.warn('Storage unavailable; anonymous profile ID will not persist across page loads.')
+  }
   storageKey = makeStorageKey(projectId, 'profile')
 }
 
@@ -20,9 +25,12 @@ export const getAnonymousId = (): string => {
   if (storage) {
     try {
       const stored = storage.getItem(storageKey)
-      if (stored && stored.startsWith('anon-')) {
-        anonymousId = stored
-        return anonymousId
+      if (stored) {
+        if (stored.startsWith('anon-')) {
+          anonymousId = stored
+          return anonymousId
+        }
+        log.warn('Stored profile ID has unexpected format (missing "anon-" prefix), regenerating.')
       }
     } catch (err) {
       log.warn('Failed to read profile from storage:', err)
