@@ -6,6 +6,7 @@ import { eventPageView, setupPageViewTracking } from './events/page_view.js'
 import { eventScroll, setupScrollTracking } from './events/scroll.js'
 import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
+import { clearProfile, configureProfile, destroyProfile } from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
 import { toEvent, type TrackFn } from './track.js'
 
@@ -79,6 +80,12 @@ export const init = (projectId: string, options: InitOptions) => {
     configureSession(projectId, options.session)
   } catch (err) {
     log.warn('Failed to configure session tracking:', err)
+  }
+
+  try {
+    configureProfile(projectId)
+  } catch (err) {
+    log.warn('Failed to configure profile:', err)
   }
 
   try {
@@ -156,6 +163,7 @@ export const destroy = () => {
   }
 
   destroySession()
+  destroyProfile()
 
   cleanups = []
   state = null
@@ -173,6 +181,11 @@ export const reset = () => {
     resetIdentity()
   } catch (err) {
     log.error('Failed to reset identity:', err)
+  }
+  try {
+    clearProfile()
+  } catch (err) {
+    log.error('Failed to clear profile:', err)
   }
 }
 
