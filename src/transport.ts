@@ -17,7 +17,7 @@ export const createTransport = (endpoint: string, apiKey: string) => {
         const bytes = toBinary(BatchCreateRequestSchema, create(BatchCreateRequestSchema, { events }))
         const blob = new Blob([bytes], { type: 'application/proto' })
         return navigator.sendBeacon(
-          `${endpoint.replace(/\/$/, '')}/events.v1.EventsService/BatchCreate?api_key=${encodeURIComponent(apiKey)}`,
+          `${endpoint.replace(/\/$/, '')}/sdk.events.v1.EventsService/BatchCreate?api_key=${encodeURIComponent(apiKey)}`,
           blob
         )
       } catch (err) {

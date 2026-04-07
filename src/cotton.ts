@@ -263,7 +263,7 @@ export const identify = async (externalId: string, traits?: JsonObject): Promise
     await client.identify(req)
     markIdentified(externalId)
   } catch (err) {
-    log.error(`Failed to identify "${externalId}":`, err)
+    log.error('Failed to identify:', err)
     throw err
   }
 }

@@ -45,7 +45,7 @@ export const getAnonymousId = (): string => {
           anonymousId = stored
           return anonymousId
         }
-        log.warn('Stored profile ID has unexpected format (missing "anon-" prefix), regenerating.')
+        log.warn(`Stored profile ID "${stored}" has unexpected format (missing "anon-" prefix), regenerating.`)
       }
     } catch (err) {
       log.warn('Failed to read profile from storage:', err)
@@ -72,7 +72,7 @@ export const markIdentified = (id: string): void => {
     try {
       storage.setItem(externalIdKey, id)
     } catch (err) {
-      log.warn('Failed to persist external ID to storage:', err)
+      log.error('Failed to persist external ID to storage — identification will not survive page reload:', err)
     }
   }
 }
@@ -85,9 +85,13 @@ export const clearProfile = (): void => {
   if (storage) {
     try {
       storage.removeItem(storageKey)
+    } catch (err) {
+      log.warn('Failed to remove anonymous profile from storage:', err)
+    }
+    try {
       storage.removeItem(externalIdKey)
     } catch (err) {
-      log.warn('Failed to remove profile from storage:', err)
+      log.warn('Failed to remove external ID from storage:', err)
     }
   }
   anonymousId = ''

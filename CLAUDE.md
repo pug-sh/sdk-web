@@ -50,7 +50,7 @@ Module-level state, no classes. Manages anonymous profile IDs persisted to `loca
 
 - `configureProfile(projectId)` — called by `cotton.init()`. Sets up storage, storage keys, and restores any persisted `externalId` from a previous `identify()` call.
 - `getAnonymousId()` — returns or creates a persistent `"anon-<uuidv7>"` ID.
-- `resolveDistinctId()` — returns `externalId` if identified, otherwise the anonymous ID. Called by `track()` to set the `distinctId` field on every event.
+- `resolveDistinctId()` — returns `externalId` if one has been persisted (from a previous `identify()` call, even across page loads), otherwise the anonymous ID. Called by `track()` to set the `distinctId` field on every event.
 - `isIdentified()` / `markIdentified(id)` — tracks whether `identify()` has been called since the last page load or `reset()`. `markIdentified` persists the `externalId` to localStorage so it survives page reloads. Controls whether `anonymousId` is sent on the next `identify()` RPC (first call triggers server-side merge of anonymous → identified profile).
 - `clearProfile()` — clears storage (both anonymous ID and external ID) and resets identified state. Called by `cotton.reset()`.
 - `destroyProfile()` — clears profile and resets all module state. Called by `cotton.destroy()`.
