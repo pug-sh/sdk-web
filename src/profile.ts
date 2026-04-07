@@ -6,8 +6,8 @@ let storageKey = ''
 let externalIdKey = ''
 let anonymousId = ''
 let externalId = ''
-// In-memory only (not persisted) — resets on every page load so the first identify() always
-// sends anonymousId for server-side merge. The server handles duplicate merges idempotently.
+// Derived from persisted externalId on page load. When false, the next identify() sends
+// anonymousId for server-side merge. When true (externalId restored), merge is skipped.
 let identified = false
 let storage: Storage | null = null
 
@@ -25,6 +25,7 @@ export const configureProfile = (projectId: string): void => {
       const stored = storage.getItem(externalIdKey)
       if (stored) {
         externalId = stored
+        identified = true
       }
     } catch (err) {
       log.warn('Failed to read external ID from storage:', err)
