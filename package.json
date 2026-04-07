@@ -18,7 +18,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@buf/fivebits_cotton.bufbuild_es": "2.11.0-20260322091518-36fefd89f84e.1",
+    "@buf/fivebits_cotton.bufbuild_es": "2.11.0-20260407030713-e770f3756cb7.1",
     "@bufbuild/protobuf": "^2.11.0",
     "@bufbuild/protovalidate": "^1.1.1",
     "@connectrpc/connect": "^2.1.1",

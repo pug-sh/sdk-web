@@ -82,3 +82,4 @@ config.local.*
 
 # PR reviews
 pr-review.md
+docs/superpowers

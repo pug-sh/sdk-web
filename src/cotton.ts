@@ -1,3 +1,11 @@
+import {
+  IdentifyRequestSchema,
+  ProfilesSDKService,
+} from '@buf/fivebits_cotton.bufbuild_es/sdk/profiles/v1/profiles_pb.js'
+import { create, type JsonObject } from '@bufbuild/protobuf'
+import { createValidator } from '@bufbuild/protovalidate'
+import { createClient } from '@connectrpc/connect'
+import { createApiTransport } from './api-transport.js'
 import { type BatchConfig, createBatchedTransport } from './batch.js'
 import { eventClick, setupClickTracking } from './events/click.js'
 import { eventFormStart, eventFormSubmit, setupFormTracking } from './events/form.js'
@@ -6,6 +14,15 @@ import { eventPageView, setupPageViewTracking } from './events/page_view.js'
 import { eventScroll, setupScrollTracking } from './events/scroll.js'
 import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
+import {
+  clearProfile,
+  configureProfile,
+  destroyProfile,
+  getAnonymousId,
+  isIdentified,
+  markIdentified,
+  resolveDistinctId,
+} from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
 import { toEvent, type TrackFn } from './track.js'
 
@@ -26,7 +43,7 @@ export interface CottonConfig {
 
 export interface InitOptions {
   readonly endpoint?: string
-  readonly token: string
+  readonly apiKey: string
   readonly samplingRate?: number
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
@@ -37,11 +54,29 @@ export interface InitOptions {
 interface CottonState {
   readonly config: CottonConfig
   readonly transport: ReturnType<typeof createBatchedTransport>
+  readonly apiKey: string
   readonly dryRun: boolean
 }
 
+const validator = createValidator()
+
 let state: CottonState | null = null
 let cleanups: { name: string; fn: () => void }[] = []
+
+type ProfilesClient = ReturnType<typeof createClient<typeof ProfilesSDKService>>
+
+let profilesClient: ProfilesClient | null = null
+
+const getProfilesClient = (): ProfilesClient => {
+  if (profilesClient) {
+    return profilesClient
+  }
+  if (!state) {
+    throw new Error('[Cotton SDK] Cannot create profiles client: SDK not initialized')
+  }
+  profilesClient = createClient(ProfilesSDKService, createApiTransport(state.config.endpoint, state.apiKey))
+  return profilesClient
+}
 
 export const init = (projectId: string, options: InitOptions) => {
   if (typeof window === 'undefined') {
@@ -53,8 +88,8 @@ export const init = (projectId: string, options: InitOptions) => {
     throw new Error('[Cotton SDK] projectId is required and must be a non-empty string')
   }
 
-  if (!options.token || typeof options.token !== 'string') {
-    throw new Error('[Cotton SDK] token is required and must be a non-empty string')
+  if (!options.apiKey || typeof options.apiKey !== 'string') {
+    throw new Error('[Cotton SDK] apiKey is required and must be a non-empty string')
   }
 
   if (state) {
@@ -82,14 +117,20 @@ export const init = (projectId: string, options: InitOptions) => {
   }
 
   try {
+    configureProfile(projectId)
+  } catch (err) {
+    log.warn('Failed to configure profile:', err)
+  }
+
+  try {
     initUserAgentData()
   } catch (err) {
     log.warn('Failed to initialize user agent data:', err)
   }
 
-  const transport = createBatchedTransport(config.endpoint, options.token, projectId, options.batch)
+  const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
 
-  state = { config, transport, dryRun: options.dryRun ?? false }
+  state = { config, transport, apiKey: options.apiKey, dryRun: options.dryRun ?? false }
 
   if (state.dryRun) {
     log.warn('Dry run mode enabled — events will not be sent.')
@@ -156,6 +197,8 @@ export const destroy = () => {
   }
 
   destroySession()
+  destroyProfile()
+  profilesClient = null
 
   cleanups = []
   state = null
@@ -174,6 +217,55 @@ export const reset = () => {
   } catch (err) {
     log.error('Failed to reset identity:', err)
   }
+  try {
+    clearProfile()
+  } catch (err) {
+    log.error('Failed to clear profile:', err)
+  }
+  // profilesClient is intentionally preserved — it holds no per-user or per-session state,
+  // only the endpoint and API key from init().
+}
+
+/** Throws on invalid input (sync) and on RPC failure (async). Callers must handle errors. */
+export const identify = async (externalId: string, traits?: JsonObject): Promise<void> => {
+  if (typeof window === 'undefined') {
+    log.warn('identify() called in a non-browser environment, skipping.')
+    return
+  }
+  if (!state) {
+    log.warn('identify() called before init().')
+    return
+  }
+  if (!externalId || typeof externalId !== 'string') {
+    throw new Error('[Cotton SDK] identify() requires a non-empty externalId string')
+  }
+  if (state.dryRun) {
+    log.debug('dryRun: would identify')
+    return
+  }
+
+  const client = getProfilesClient()
+
+  const req = create(IdentifyRequestSchema, {
+    externalId,
+    traits,
+    anonymousId: isIdentified() ? '' : getAnonymousId(),
+  })
+
+  const validation = validator.validate(IdentifyRequestSchema, req)
+  if (validation.kind === 'invalid') {
+    throw new Error(
+      `[Cotton SDK] Invalid identify request: ${validation.violations.map(v => `${v.field}: ${v.message}`).join(', ')}`
+    )
+  }
+
+  try {
+    await client.identify(req)
+    markIdentified(externalId)
+  } catch (err) {
+    log.error('Failed to identify:', err)
+    throw err
+  }
 }
 
 /** This function must never throw. Callers (e.g. monkey-patched history.pushState) rely on it being safe. */
@@ -190,7 +282,7 @@ export const track: TrackFn<CottonEventName> = (kind, props, opts) => {
 
     log.debug(`track("${kind}")`)
     const immediate = opts?.immediate ?? false
-    const event = toEvent(state.config.projectId, kind, resolveSessionId(), props, opts)
+    const event = toEvent(state.config.projectId, kind, resolveSessionId(), resolveDistinctId(), props, opts)
     if (!event) {
       return
     }

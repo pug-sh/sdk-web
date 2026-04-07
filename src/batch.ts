@@ -1,4 +1,4 @@
-import { EventSchema, type Event } from '@buf/fivebits_cotton.bufbuild_es/events/v1/events_pb.js'
+import { EventSchema, type Event } from '@buf/fivebits_cotton.bufbuild_es/sdk/events/v1/events_pb.js'
 import { fromJson, JsonValue, toJson } from '@bufbuild/protobuf'
 import { ConnectError } from '@connectrpc/connect'
 import { log } from './logger.js'
@@ -193,7 +193,7 @@ type TransportState = 'idle' | 'flushing' | 'destroyed'
 
 export const createBatchedTransport = (
   endpoint: string,
-  token: string,
+  apiKey: string,
   projectId: string,
   partialConfig?: Partial<BatchConfig>
 ) => {
@@ -211,7 +211,7 @@ export const createBatchedTransport = (
   const maxQueueSize = validated('maxQueueSize', merged.maxQueueSize, 1, DEFAULT_BATCH_CONFIG.maxQueueSize)
   const storageKey = makeStorageKey(projectId, 'queue')
 
-  const inner = createTransport(endpoint, token)
+  const inner = createTransport(endpoint, apiKey)
   const storage = createDefaultQueueStorage(storageKey, maxQueueSize)
   let timer: ReturnType<typeof setTimeout> | null = null
   let state: TransportState = 'idle'
