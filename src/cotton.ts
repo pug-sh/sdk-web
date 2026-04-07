@@ -1,8 +1,11 @@
-import { IdentifyRequestSchema, ProfilesSDKService } from '@buf/fivebits_cotton.bufbuild_es/sdk/profiles/v1/profiles_pb.js'
+import {
+  IdentifyRequestSchema,
+  ProfilesSDKService,
+} from '@buf/fivebits_cotton.bufbuild_es/sdk/profiles/v1/profiles_pb.js'
 import { create, type JsonObject } from '@bufbuild/protobuf'
 import { createClient } from '@connectrpc/connect'
-import { type BatchConfig, createBatchedTransport } from './batch.js'
 import { createApiTransport } from './api-transport.js'
+import { type BatchConfig, createBatchedTransport } from './batch.js'
 import { eventClick, setupClickTracking } from './events/click.js'
 import { eventFormStart, eventFormSubmit, setupFormTracking } from './events/form.js'
 import { eventDeadClick, eventRageClick, setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
@@ -10,7 +13,14 @@ import { eventPageView, setupPageViewTracking } from './events/page_view.js'
 import { eventScroll, setupScrollTracking } from './events/scroll.js'
 import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
-import { clearProfile, configureProfile, destroyProfile, getAnonymousId, isIdentified, markIdentified } from './profile.js'
+import {
+  clearProfile,
+  configureProfile,
+  destroyProfile,
+  getAnonymousId,
+  isIdentified,
+  markIdentified,
+} from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
 import { toEvent, type JSONValue, type TrackFn } from './track.js'
 
@@ -208,10 +218,7 @@ export const reset = () => {
   }
 }
 
-export const identify = async (
-  externalId: string,
-  traits?: Record<string, JSONValue>
-): Promise<void> => {
+export const identify = async (externalId: string, traits?: Record<string, JSONValue>): Promise<void> => {
   if (typeof window === 'undefined') {
     return
   }

@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@buf/fivebits_cotton.bufbuild_es':
-        specifier: 2.11.0-20260322091518-36fefd89f84e.1
-        version: 2.11.0-20260322091518-36fefd89f84e.1(@bufbuild/protobuf@2.11.0)
+        specifier: 2.11.0-20260407030713-e770f3756cb7.1
+        version: 2.11.0-20260407030713-e770f3756cb7.1(@bufbuild/protobuf@2.11.0)
       '@bufbuild/protobuf':
         specifier: ^2.11.0
         version: 2.11.0
@@ -62,7 +62,7 @@ importers:
         version: 8.57.1(eslint@9.39.4)(typescript@5.9.3)
       vitest:
         specifier: ^4.1.1
-        version: 4.1.1(jsdom@29.0.1)(vite@8.0.2)
+        version: 4.1.1(jsdom@29.0.1)(vite@8.0.2(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1))
 
 packages:
 
@@ -86,8 +86,8 @@ packages:
     peerDependencies:
       '@bufbuild/protobuf': ^2.11.0
 
-  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260322091518-36fefd89f84e.1':
-    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/fivebits_cotton.bufbuild_es/-/fivebits_cotton.bufbuild_es-2.11.0-20260322091518-36fefd89f84e.1.tgz}
+  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260407030713-e770f3756cb7.1':
+    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/fivebits_cotton.bufbuild_es/-/fivebits_cotton.bufbuild_es-2.11.0-20260407030713-e770f3756cb7.1.tgz}
     peerDependencies:
       '@bufbuild/protobuf': ^2.11.0
 
@@ -231,8 +231,11 @@ packages:
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
-  '@napi-rs/wasm-runtime@1.1.1':
-    resolution: {integrity: sha512-p64ah1M1ld8xjWv3qbvFwHiFVWrq1yFvV4f7w+mzaqiR4IlSgkqhcRdHwsGgomwzBH51sRY4NEowLxnaBjcW/A==}
+  '@napi-rs/wasm-runtime@1.1.2':
+    resolution: {integrity: sha512-sNXv5oLJ7ob93xkZ1XnxisYhGYXfaG9f65/ZgYuAu3qt7b3NadcOEhLvx28hv31PgX8SZJRYrAIPQilQmFpLVw==}
+    peerDependencies:
+      '@emnapi/core': ^1.7.1
+      '@emnapi/runtime': ^1.7.1
 
   '@oxc-project/types@0.122.0':
     resolution: {integrity: sha512-oLAl5kBpV4w69UtFZ9xqcmTi+GENWOcPF7FCrczTiBbmC0ibXxCwyvZGbO39rCVEuLGAZM84DH0pUIyyv/YJzA==}
@@ -1419,6 +1422,10 @@ packages:
     resolution: {integrity: sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q==}
     engines: {node: '>=12'}
 
+  picomatch@4.0.4:
+    resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
+    engines: {node: '>=12'}
+
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
     engines: {node: '>= 0.4'}
@@ -1907,7 +1914,7 @@ snapshots:
     dependencies:
       '@bufbuild/protobuf': 2.11.0
 
-  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260322091518-36fefd89f84e.1(@bufbuild/protobuf@2.11.0)':
+  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260407030713-e770f3756cb7.1(@bufbuild/protobuf@2.11.0)':
     dependencies:
       '@buf/bufbuild_protovalidate.bufbuild_es': 2.11.0-20251209175733-2a1774d88802.1(@bufbuild/protobuf@2.11.0)
       '@bufbuild/protobuf': 2.11.0
@@ -2038,7 +2045,7 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
-  '@napi-rs/wasm-runtime@1.1.1':
+  '@napi-rs/wasm-runtime@1.1.2(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)':
     dependencies:
       '@emnapi/core': 1.9.1
       '@emnapi/runtime': 1.9.1
@@ -2085,9 +2092,12 @@ snapshots:
   '@rolldown/binding-openharmony-arm64@1.0.0-rc.11':
     optional: true
 
-  '@rolldown/binding-wasm32-wasi@1.0.0-rc.11':
+  '@rolldown/binding-wasm32-wasi@1.0.0-rc.11(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.1.1
+      '@napi-rs/wasm-runtime': 1.1.2(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)
+    transitivePeerDependencies:
+      - '@emnapi/core'
+      - '@emnapi/runtime'
     optional: true
 
   '@rolldown/binding-win32-arm64-msvc@1.0.0-rc.11':
@@ -2220,13 +2230,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.1(vite@8.0.2)':
+  '@vitest/mocker@4.1.1(vite@8.0.2(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1))':
     dependencies:
       '@vitest/spy': 4.1.1
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.0.2
+      vite: 8.0.2(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)
 
   '@vitest/pretty-format@4.1.1':
     dependencies:
@@ -3278,6 +3288,8 @@ snapshots:
 
   picomatch@4.0.3: {}
 
+  picomatch@4.0.4: {}
+
   possible-typed-array-names@1.1.0: {}
 
   postcss@8.5.8:
@@ -3344,7 +3356,7 @@ snapshots:
       path-parse: 1.0.7
       supports-preserve-symlinks-flag: 1.0.0
 
-  rolldown@1.0.0-rc.11:
+  rolldown@1.0.0-rc.11(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1):
     dependencies:
       '@oxc-project/types': 0.122.0
       '@rolldown/pluginutils': 1.0.0-rc.11
@@ -3361,9 +3373,12 @@ snapshots:
       '@rolldown/binding-linux-x64-gnu': 1.0.0-rc.11
       '@rolldown/binding-linux-x64-musl': 1.0.0-rc.11
       '@rolldown/binding-openharmony-arm64': 1.0.0-rc.11
-      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.11
+      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.11(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)
       '@rolldown/binding-win32-arm64-msvc': 1.0.0-rc.11
       '@rolldown/binding-win32-x64-msvc': 1.0.0-rc.11
+    transitivePeerDependencies:
+      - '@emnapi/core'
+      - '@emnapi/runtime'
 
   safe-array-concat@1.1.3:
     dependencies:
@@ -3667,20 +3682,23 @@ snapshots:
 
   vary@1.1.2: {}
 
-  vite@8.0.2:
+  vite@8.0.2(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1):
     dependencies:
       lightningcss: 1.32.0
-      picomatch: 4.0.3
+      picomatch: 4.0.4
       postcss: 8.5.8
-      rolldown: 1.0.0-rc.11
+      rolldown: 1.0.0-rc.11(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)
       tinyglobby: 0.2.15
     optionalDependencies:
       fsevents: 2.3.3
+    transitivePeerDependencies:
+      - '@emnapi/core'
+      - '@emnapi/runtime'
 
-  vitest@4.1.1(jsdom@29.0.1)(vite@8.0.2):
+  vitest@4.1.1(jsdom@29.0.1)(vite@8.0.2(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)):
     dependencies:
       '@vitest/expect': 4.1.1
-      '@vitest/mocker': 4.1.1(vite@8.0.2)
+      '@vitest/mocker': 4.1.1(vite@8.0.2(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1))
       '@vitest/pretty-format': 4.1.1
       '@vitest/runner': 4.1.1
       '@vitest/snapshot': 4.1.1
@@ -3697,7 +3715,7 @@ snapshots:
       tinyexec: 1.0.4
       tinyglobby: 0.2.15
       tinyrainbow: 3.1.0
-      vite: 8.0.2
+      vite: 8.0.2(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)
       why-is-node-running: 2.3.0
     optionalDependencies:
       jsdom: 29.0.1
