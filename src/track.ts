@@ -1,5 +1,5 @@
 import { type Event, EventSchema } from '@buf/fivebits_cotton.bufbuild_es/sdk/events/v1/events_pb.js'
-import { create } from '@bufbuild/protobuf'
+import { create, type JsonObject } from '@bufbuild/protobuf'
 import { timestampFromMs, timestampNow } from '@bufbuild/protobuf/wkt'
 import { createValidator } from '@bufbuild/protovalidate'
 import { log } from './logger.js'
@@ -14,9 +14,7 @@ export interface TrackOptions {
   readonly timestamp?: number
 }
 
-export type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue }
-
-const flattenJSONValue = (props: Record<string, JSONValue>) => {
+const flattenJsonObject = (props: JsonObject) => {
   const m: Record<string, string> = {}
   for (const k of Object.keys(props)) {
     m[k] = typeof props[k] === 'string' ? props[k] : JSON.stringify(props[k])
@@ -28,7 +26,7 @@ export const toEvent = (
   projectId: string,
   kind: string,
   sessionId: string,
-  props?: Record<string, JSONValue>,
+  props?: JsonObject,
   opts?: TrackOptions
 ): Event | null => {
   const event = create(EventSchema, {
@@ -44,7 +42,7 @@ export const toEvent = (
       ...parseUserAgentData(),
       ...parseUtmParams(window.location.search),
     },
-    customProperties: props ? flattenJSONValue(props) : {},
+    customProperties: props ? flattenJsonObject(props) : {},
     kind,
     sessionId,
     occurTime: opts?.timestamp ? timestampFromMs(opts.timestamp) : timestampNow(),
@@ -59,4 +57,4 @@ export const toEvent = (
   return event
 }
 
-export type TrackFn<T extends string> = (event: T, props?: Record<string, JSONValue>, options?: TrackOptions) => void
+export type TrackFn<T extends string> = (event: T, props?: JsonObject, options?: TrackOptions) => void

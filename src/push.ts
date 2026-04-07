@@ -1,10 +1,10 @@
 import { DevicesService, SubscribeRequestSchema } from '@buf/fivebits_cotton.bufbuild_es/sdk/devices/v1/devices_pb.js'
-import { create } from '@bufbuild/protobuf'
+import { create, type JsonValue } from '@bufbuild/protobuf'
 import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
 import { createApiTransport } from './api-transport.js'
 import { log } from './logger.js'
-import type { JSONValue, TrackFn } from './track.js'
+import type { TrackFn } from './track.js'
 import { isStorageAvailable, urlBase64ToUint8Array } from './utils.js'
 
 const validator = createValidator()
@@ -167,11 +167,11 @@ export const eventNotificationClick = 'notification_click' as const
 
 // Filters notification data to flat primitive values. Nested objects and arrays are
 // dropped to match the flat key-value structure expected by track()'s customProperties.
-const sanitizeNotificationData = (raw: unknown): Record<string, JSONValue> => {
+const sanitizeNotificationData = (raw: unknown): Record<string, JsonValue> => {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return {}
   }
-  const data: Record<string, JSONValue> = {}
+  const data: Record<string, JsonValue> = {}
   for (const [k, v] of Object.entries(raw)) {
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
       data[k] = v

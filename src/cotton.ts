@@ -22,7 +22,7 @@ import {
   markIdentified,
 } from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
-import { toEvent, type JSONValue, type TrackFn } from './track.js'
+import { toEvent, type TrackFn } from './track.js'
 
 export type CottonEventName =
   | typeof eventClick
@@ -218,7 +218,7 @@ export const reset = () => {
   }
 }
 
-export const identify = async (externalId: string, traits?: Record<string, JSONValue>): Promise<void> => {
+export const identify = async (externalId: string, traits?: JsonObject): Promise<void> => {
   if (typeof window === 'undefined') {
     return
   }
@@ -243,7 +243,7 @@ export const identify = async (externalId: string, traits?: Record<string, JSONV
 
   const req = create(IdentifyRequestSchema, {
     externalId,
-    traits: traits as JsonObject | undefined,
+    traits: traits,
     anonymousId: isIdentified() ? '' : getAnonymousId(),
   })
 

@@ -11,4 +11,5 @@ export {
 } from './cotton.js'
 export { rotate, type SessionConfig } from './session.js'
 export { subscribePush, unsubscribePush, setupNotificationClickTracking, type PushOptions } from './push.js'
-export { type JSONValue, type TrackOptions } from './track.js'
+export { type JsonObject, type JsonValue } from '@bufbuild/protobuf'
+export { type TrackOptions } from './track.js'
