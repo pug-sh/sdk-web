@@ -3,6 +3,7 @@ import {
   ProfilesSDKService,
 } from '@buf/fivebits_cotton.bufbuild_es/sdk/profiles/v1/profiles_pb.js'
 import { create, type JsonObject } from '@bufbuild/protobuf'
+import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
 import { createApiTransport } from './api-transport.js'
 import { type BatchConfig, createBatchedTransport } from './batch.js'
@@ -59,9 +60,11 @@ interface CottonState {
 let state: CottonState | null = null
 let cleanups: { name: string; fn: () => void }[] = []
 
-let profilesClient: ReturnType<typeof createClient<typeof ProfilesSDKService>> | null = null
+type ProfilesClient = ReturnType<typeof createClient<typeof ProfilesSDKService>>
 
-const getProfilesClient = (): ReturnType<typeof createClient<typeof ProfilesSDKService>> | null => {
+let profilesClient: ProfilesClient | null = null
+
+const getProfilesClient = (): ProfilesClient | null => {
   if (profilesClient) {
     return profilesClient
   }
@@ -247,11 +250,19 @@ export const identify = async (externalId: string, traits?: JsonObject): Promise
     anonymousId: isIdentified() ? '' : getAnonymousId(),
   })
 
+  const validation = createValidator().validate(IdentifyRequestSchema, req)
+  if (validation.kind === 'invalid') {
+    throw new Error(
+      `[Cotton SDK] Invalid identify request: ${validation.violations.map(v => `${v.field}: ${v.message}`).join(', ')}`
+    )
+  }
+
   try {
     await client.identify(req)
     markIdentified()
   } catch (err) {
-    log.error('Failed to identify:', err)
+    log.error(`Failed to identify "${externalId}":`, err)
+    throw err
   }
 }
 

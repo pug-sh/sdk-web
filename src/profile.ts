@@ -20,7 +20,7 @@ export const getAnonymousId = (): string => {
   if (storage) {
     try {
       const stored = storage.getItem(storageKey)
-      if (stored) {
+      if (stored && stored.startsWith('anon-')) {
         anonymousId = stored
         return anonymousId
       }
