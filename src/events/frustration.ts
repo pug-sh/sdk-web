@@ -1,7 +1,7 @@
-import type { TrackFn } from '../track.js'
+import type { TrackFn, WellKnownEventName } from '../track.js'
 
-export const eventRageClick = 'rage_click'
-export const eventDeadClick = 'dead_click'
+export const eventRageClick = 'rage_click' satisfies WellKnownEventName
+export const eventDeadClick = 'dead_click' satisfies WellKnownEventName
 
 export const setupRageClickTracking = (track: TrackFn) => {
   const CLICKS_THRESHOLD = 3

@@ -1,6 +1,6 @@
-import type { TrackFn } from '../track.js'
+import type { TrackFn, WellKnownEventName } from '../track.js'
 
-export const eventScroll = 'scroll'
+export const eventScroll = 'scroll' satisfies WellKnownEventName
 
 export const setupScrollTracking = (track: TrackFn) => {
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -15,8 +15,8 @@ export const setupScrollTracking = (track: TrackFn) => {
     timer = setTimeout(() => {
       const scrollable = document.body.scrollHeight - window.innerHeight
       track(eventScroll, {
-        percent: scrollable > 0 ? Math.round((window.scrollY / scrollable) * 100) : 0,
-        scrollY: window.scrollY,
+        percent: scrollable > 0 ? Math.min(100, Math.max(0, Math.round((window.scrollY / scrollable) * 100))) : 0,
+        scrollY: Math.max(0, Math.round(window.scrollY)),
       })
       timer = null
     }, THROTTLE_MS)

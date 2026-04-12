@@ -34,7 +34,7 @@ export interface TrackOptions {
 
 export type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue }
 
-export const wellKnownSchemas = {
+export const wellKnownSchemas = Object.freeze({
   add_to_cart: AddToCartPropertiesSchema,
   app_close: AppClosePropertiesSchema,
   app_open: AppOpenPropertiesSchema,
@@ -59,16 +59,20 @@ export const wellKnownSchemas = {
   signup: SignupPropertiesSchema,
   video_pause: VideoPausePropertiesSchema,
   video_play: VideoPlayPropertiesSchema,
-} as const
+} as const)
 
 type WellKnownSchemas = typeof wellKnownSchemas
 export type WellKnownEventName = keyof WellKnownSchemas
 export type WellKnownEventPropsMap = { [K in WellKnownEventName]: MessageInitShape<WellKnownSchemas[K]> }
 
-export type TrackProps<K extends string> = K extends WellKnownEventName
-  ? WellKnownEventPropsMap[K]
-  : Record<string, JSONValue>
-
+/**
+ * Overloaded track function type. First overload narrows properties for well-known
+ * events; second accepts any string with loose Record<string, JSONValue> props.
+ *
+ * Note: if the first overload's type check fails (e.g., wrong type for a known field),
+ * TypeScript silently falls through to the second overload. Runtime validation in
+ * validateWellKnownProps is the actual safety net.
+ */
 export type TrackFn = {
   <K extends WellKnownEventName>(
     event: K,

@@ -1,10 +1,10 @@
 import { DevicesService, SubscribeRequestSchema } from '@buf/fivebits_cotton.bufbuild_es/sdk/devices/v1/devices_pb.js'
-import { create, type JsonValue } from '@bufbuild/protobuf'
+import { create } from '@bufbuild/protobuf'
 import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
 import { createApiTransport } from './api-transport.js'
 import { log } from './logger.js'
-import type { TrackFn } from './track.js'
+import type { JSONValue, TrackFn, WellKnownEventName } from './track.js'
 import { isStorageAvailable, urlBase64ToUint8Array } from './utils.js'
 
 const validator = createValidator()
@@ -154,30 +154,48 @@ export const subscribePush = async (vapidPublicKey: string, options: PushOptions
   // subscribePush throws on validation failure (critical operation), unlike toEvent which
   // drops invalid events with an error log (best-effort, respecting the "track() must never throw" invariant).
   const result = validator.validate(SubscribeRequestSchema, request)
-  if (result.kind === 'invalid') {
-    throw new Error(
-      `[Cotton SDK] Invalid subscribe request: ${result.violations.map(v => `${v.field}: ${v.message}`).join(', ')}`
-    )
+  if (result.kind !== 'valid') {
+    const detail =
+      result.kind === 'invalid'
+        ? result.violations.map(v => `${v.field}: ${v.message}`).join(', ')
+        : String(result.error)
+    throw new Error(`[Cotton SDK] Invalid subscribe request: ${detail}`)
   }
 
   await devicesClient.subscribe(request)
 }
 
-export const eventNotificationClick = 'notification_click' as const
+export const eventNotificationClick = 'notification_clicked' satisfies WellKnownEventName
 
-// Filters notification data to flat primitive values. Nested objects and arrays are
-// dropped to match the flat key-value structure expected by track()'s customProperties.
-const sanitizeNotificationData = (raw: unknown): Record<string, JsonValue> => {
+// Filters notification data to flat primitive values. Nested objects and arrays are dropped
+// to keep notification properties simple and predictable — the payload originates from the
+// push service and may contain arbitrary structures.
+const sanitizeNotificationData = (raw: unknown): Record<string, JSONValue> => {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return {}
   }
-  const data: Record<string, JsonValue> = {}
+  const data: Record<string, JSONValue> = {}
+  const dropped: string[] = []
   for (const [k, v] of Object.entries(raw)) {
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
       data[k] = v
+    } else if (v !== null && v !== undefined) {
+      dropped.push(k)
     }
   }
+  if (dropped.length > 0) {
+    log.debug(`notification_clicked: dropped non-primitive properties: ${dropped.join(', ')}`)
+  }
   return data
+}
+
+const trackNotificationClick = (track: TrackFn, data: Record<string, JSONValue>) => {
+  const cid = data.campaignId
+  const campaignId = typeof cid === 'string' && cid ? cid : '(unknown)'
+  if (campaignId === '(unknown)') {
+    log.debug('notification_clicked: no campaignId in notification data, using fallback')
+  }
+  track(eventNotificationClick, { ...data, campaignId })
 }
 
 /**
@@ -195,8 +213,7 @@ export const setupNotificationClickTracking = (track: TrackFn): (() => void) => 
     const param = url.searchParams.get('cotton_nc')
     if (param) {
       try {
-        const data = sanitizeNotificationData(JSON.parse(param))
-        track(eventNotificationClick, data)
+        trackNotificationClick(track, sanitizeNotificationData(JSON.parse(param)))
       } catch (err) {
         log.warn('Malformed cotton_nc parameter:', err)
       }
@@ -220,7 +237,7 @@ export const setupNotificationClickTracking = (track: TrackFn): (() => void) => 
       return
     }
     if (event.data?.type === 'cotton_notification_click') {
-      track(eventNotificationClick, sanitizeNotificationData(event.data.data))
+      trackNotificationClick(track, sanitizeNotificationData(event.data.data))
     }
   }
   navigator.serviceWorker.addEventListener('message', handler)

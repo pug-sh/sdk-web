@@ -2,7 +2,7 @@ import {
   IdentifyRequestSchema,
   ProfilesSDKService,
 } from '@buf/fivebits_cotton.bufbuild_es/sdk/profiles/v1/profiles_pb.js'
-import { create, type JsonObject } from '@bufbuild/protobuf'
+import { create } from '@bufbuild/protobuf'
 import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
 import { createApiTransport } from './api-transport.js'
@@ -24,7 +24,7 @@ import {
   resolveDistinctId,
 } from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
-import { toEvent, type TrackFn, type TrackOptions } from './track.js'
+import { toEvent, type JSONValue, type TrackFn, type TrackOptions } from './track.js'
 
 export interface CottonConfig {
   readonly endpoint: string
@@ -217,7 +217,7 @@ export const reset = () => {
 }
 
 /** Throws on invalid input (sync) and on RPC failure (async). Callers must handle errors. */
-export const identify = async (externalId: string, traits?: JsonObject): Promise<void> => {
+export const identify = async (externalId: string, traits?: Record<string, JSONValue>): Promise<void> => {
   if (typeof window === 'undefined') {
     log.warn('identify() called in a non-browser environment, skipping.')
     return
@@ -243,10 +243,12 @@ export const identify = async (externalId: string, traits?: JsonObject): Promise
   })
 
   const validation = validator.validate(IdentifyRequestSchema, req)
-  if (validation.kind === 'invalid') {
-    throw new Error(
-      `[Cotton SDK] Invalid identify request: ${validation.violations.map(v => `${v.field}: ${v.message}`).join(', ')}`
-    )
+  if (validation.kind !== 'valid') {
+    const detail =
+      validation.kind === 'invalid'
+        ? validation.violations.map(v => `${v.field}: ${v.message}`).join(', ')
+        : String(validation.error)
+    throw new Error(`[Cotton SDK] Invalid identify request: ${detail}`)
   }
 
   try {
@@ -274,6 +276,7 @@ export const track: TrackFn = (kind: string, props?: Record<string, unknown>, op
     const immediate = opts?.immediate ?? false
     const event = toEvent(state.config.projectId, kind, resolveSessionId(), resolveDistinctId(), props, opts)
     if (!event) {
+      // error already logged by toEvent
       return
     }
     if (state.dryRun) {

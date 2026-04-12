@@ -1,7 +1,7 @@
-import type { TrackFn } from '../track.js'
+import type { TrackFn, WellKnownEventName } from '../track.js'
 
-export const eventFormStart = 'form_start'
-export const eventFormSubmit = 'form_submit'
+export const eventFormStart = 'form_start' satisfies WellKnownEventName
+export const eventFormSubmit = 'form_submit' satisfies WellKnownEventName
 
 export const setupFormTracking = (track: TrackFn) => {
   const formsSeen = new WeakSet<HTMLFormElement>()
@@ -15,7 +15,7 @@ export const setupFormTracking = (track: TrackFn) => {
 
     if (form && !formsSeen.has(form)) {
       formsSeen.add(form)
-      track(eventFormStart, { formId: form.id, formName: form.name })
+      track(eventFormStart, { formId: form.id || '(anonymous)', formName: form.name })
     }
   }
 
@@ -24,7 +24,7 @@ export const setupFormTracking = (track: TrackFn) => {
       return
     }
     const form = event.target as HTMLFormElement
-    track(eventFormSubmit, { action: form.action, formId: form.id, formName: form.name })
+    track(eventFormSubmit, { action: form.action, formId: form.id || '(anonymous)', formName: form.name })
   }
 
   window.addEventListener('input', onInput, true)

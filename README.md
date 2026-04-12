@@ -137,7 +137,7 @@ const handleEnablePush = async () => {
 
 #### `setupNotificationClickTracking(track)`
 
-Tracks `notification_click` events reliably across two cases:
+Tracks `notification_clicked` events reliably across two cases:
 
 - **Page already open** — the service worker sends a `postMessage`; this function listens for it and calls `track`.
 - **Page opened by the click** — the service worker appends `?cotton_nc=<data>` to the URL; this function reads it on load, calls `track`, then removes the param with `history.replaceState`.
@@ -157,7 +157,7 @@ const cleanupPushTracking = setupNotificationClickTracking(track)
 // destroy()
 ```
 
-The `notification_click` event receives whatever was set in `event.notification.data` when the notification was shown:
+The `notification_clicked` event receives whatever was set in `event.notification.data` when the notification was shown:
 
 ```json
 {
@@ -172,7 +172,9 @@ The `notification_click` event receives whatever was set in `event.notification.
 }
 ```
 
-→ `track('notification_click', { url: '...', campaignId: 'abc123' })`
+→ `track('notification_clicked', { url: '...', campaignId: 'abc123' })`
+
+> If `campaignId` is absent or empty in the notification data, it defaults to `'(unknown)'`.
 
 #### `unsubscribePush(options?)`
 
