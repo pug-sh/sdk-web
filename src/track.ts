@@ -5,10 +5,10 @@ import { createValidator } from '@bufbuild/protovalidate'
 import { log } from './logger.js'
 import { parseUserAgentData, parseUtmParams } from './parsers.js'
 import { SDK_VERSION } from './version.js'
-import { type JSONValue, type TrackOptions, type WellKnownEventName, wellKnownSchemas } from './well-known-events.js'
+import { type JsonValue, type TrackOptions, type WellKnownEventName, wellKnownSchemas } from './well-known-events.js'
 
 export type {
-  JSONValue,
+  JsonValue,
   TrackFn,
   TrackOptions,
   WellKnownEventName,
@@ -19,7 +19,7 @@ const validator = createValidator()
 
 /**
  * Validates properties for a well-known event against its protobuf schema.
- * Schema-known fields are validated via create() + protovalidate + toJson(alwaysEmitImplicit);
+ * Schema-known fields are validated via create() + protovalidate + toJson();
  * extra fields (not in the schema) pass through unvalidated.
  * Returns null if validation fails (event should be dropped).
  */
@@ -27,17 +27,17 @@ const validateWellKnownProps = <Desc extends DescMessage>(
   schema: Desc,
   kind: string,
   data: Record<string, unknown>
-): Record<string, JSONValue> | null => {
+): Record<string, JsonValue> | null => {
   const knownNames = new Set(schema.fields.map(f => f.localName))
   const knownData: Record<string, unknown> = {}
-  const extraData: Record<string, JSONValue> = {}
+  const extraData: Record<string, JsonValue> = {}
   for (const [k, v] of Object.entries(data)) {
     if (knownNames.has(k)) {
       knownData[k] = v
     } else if (v === undefined || typeof v === 'function' || typeof v === 'symbol' || typeof v === 'bigint') {
       log.warn(`Extra property "${k}" on event "${kind}" has non-serializable type ${typeof v}, skipping`)
     } else {
-      extraData[k] = v as JSONValue
+      extraData[k] = v as JsonValue
     }
   }
 
@@ -58,9 +58,9 @@ const validateWellKnownProps = <Desc extends DescMessage>(
     return null
   }
 
-  let json: Record<string, JSONValue>
+  let json: Record<string, JsonValue>
   try {
-    json = toJson(schema, msg, { alwaysEmitImplicit: true }) as Record<string, JSONValue>
+    json = toJson(schema, msg) as Record<string, JsonValue>
   } catch (err) {
     log.error(`Event "${kind}" dropped: failed to serialize properties for "${schema.typeName}":`, err)
     return null
@@ -70,7 +70,7 @@ const validateWellKnownProps = <Desc extends DescMessage>(
 }
 
 /** Converts all property values to strings for the proto customProperties map. */
-const flattenJSONValue = (props: Record<string, JSONValue>) => {
+const flattenJsonValue = (props: Record<string, JsonValue>) => {
   const m: Record<string, string> = {}
   for (const [k, v] of Object.entries(props)) {
     if (v === undefined) {
@@ -97,7 +97,7 @@ export const toEvent = (
   props?: Record<string, unknown>,
   opts?: TrackOptions
 ): Event | null => {
-  let resolvedProps: Record<string, JSONValue> | undefined
+  let resolvedProps: Record<string, JsonValue> | undefined
 
   if (kind in wellKnownSchemas) {
     const schema = wellKnownSchemas[kind as WellKnownEventName]
@@ -107,7 +107,7 @@ export const toEvent = (
     }
     resolvedProps = validated
   } else {
-    resolvedProps = props as Record<string, JSONValue>
+    resolvedProps = props as Record<string, JsonValue>
   }
 
   let event: Event
@@ -125,7 +125,7 @@ export const toEvent = (
         ...parseUserAgentData(),
         ...parseUtmParams(window.location.search),
       },
-      customProperties: resolvedProps ? flattenJSONValue(resolvedProps) : {},
+      customProperties: resolvedProps ? flattenJsonValue(resolvedProps) : {},
       kind,
       sessionId,
       distinctId,

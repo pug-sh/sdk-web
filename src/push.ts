@@ -1,14 +1,13 @@
 import { DevicesService, SubscribeRequestSchema } from '@buf/fivebits_cotton.bufbuild_es/sdk/devices/v1/devices_pb.js'
-import { create } from '@bufbuild/protobuf'
+import { create, type JsonObject } from '@bufbuild/protobuf'
 import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
 import { createApiTransport } from './api-transport.js'
 import { log } from './logger.js'
-import type { JSONValue, TrackFn, WellKnownEventName } from './track.js'
-import { isStorageAvailable, urlBase64ToUint8Array } from './utils.js'
+import type { JsonValue, TrackFn, WellKnownEventName } from './track.js'
+import { DEVICE_ID_KEY, isStorageAvailable, urlBase64ToUint8Array } from './utils.js'
 
 const validator = createValidator()
-const DEVICE_ID_KEY = 'cotton_device_id'
 const DEFAULT_SW_PATH = '/cotton_sw.js'
 const SW_ACTIVATE_TIMEOUT_MS = 10_000
 
@@ -99,6 +98,8 @@ export interface PushOptions {
   readonly swPath?: string
   readonly profileId?: string
   readonly profileExternalId?: string
+  /** Arbitrary key-value metadata attached to the device subscription. */
+  readonly properties?: JsonObject
 }
 
 /**
@@ -147,8 +148,9 @@ export const subscribePush = async (vapidPublicKey: string, options: PushOptions
     deviceId,
     platform: 'web',
     token: pushToken,
-    profileId: options.profileId ?? '',
-    profileExternalId: options.profileExternalId ?? '',
+    ...(options.profileId && { profileId: options.profileId }),
+    ...(options.profileExternalId && { profileExternalId: options.profileExternalId }),
+    ...(options.properties && { properties: options.properties }),
   })
 
   // subscribePush throws on validation failure (critical operation), unlike toEvent which
@@ -170,11 +172,11 @@ export const eventNotificationClick = 'notification_clicked' satisfies WellKnown
 // Filters notification data to flat primitive values. Nested objects and arrays are dropped
 // to keep notification properties simple and predictable — the payload originates from the
 // push service and may contain arbitrary structures.
-const sanitizeNotificationData = (raw: unknown): Record<string, JSONValue> => {
+const sanitizeNotificationData = (raw: unknown): Record<string, JsonValue> => {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return {}
   }
-  const data: Record<string, JSONValue> = {}
+  const data: Record<string, JsonValue> = {}
   const dropped: string[] = []
   for (const [k, v] of Object.entries(raw)) {
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
@@ -189,7 +191,7 @@ const sanitizeNotificationData = (raw: unknown): Record<string, JSONValue> => {
   return data
 }
 
-const trackNotificationClick = (track: TrackFn, data: Record<string, JSONValue>) => {
+const trackNotificationClick = (track: TrackFn, data: Record<string, JsonValue>) => {
   const cid = data.campaignId
   const campaignId = typeof cid === 'string' && cid ? cid : '(unknown)'
   if (campaignId === '(unknown)') {

@@ -24,7 +24,7 @@ import {
   VideoPausePropertiesSchema,
   VideoPlayPropertiesSchema,
 } from '@buf/fivebits_cotton.bufbuild_es/common/v1/well_known_events_pb.js'
-import type { MessageInitShape } from '@bufbuild/protobuf'
+import type { JsonValue, MessageInitShape } from '@bufbuild/protobuf'
 
 /** Options passed to `track()`. `immediate` bypasses batching for priority events; `timestamp` overrides the default current-time (epoch milliseconds, e.g. `Date.now()`). */
 export interface TrackOptions {
@@ -32,7 +32,7 @@ export interface TrackOptions {
   readonly timestamp?: number
 }
 
-export type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue }
+export type { JsonValue }
 
 export const wellKnownSchemas = Object.freeze({
   add_to_cart: AddToCartPropertiesSchema,
@@ -67,7 +67,7 @@ export type WellKnownEventPropsMap = { [K in WellKnownEventName]: MessageInitSha
 
 /**
  * Overloaded track function type. First overload narrows properties for well-known
- * events; second accepts any string with loose Record<string, JSONValue> props.
+ * events; second accepts any string with loose Record<string, JsonValue> props.
  *
  * Note: if the first overload's type check fails (e.g., wrong type for a known field),
  * TypeScript silently falls through to the second overload. Runtime validation in
@@ -76,8 +76,8 @@ export type WellKnownEventPropsMap = { [K in WellKnownEventName]: MessageInitSha
 export type TrackFn = {
   <K extends WellKnownEventName>(
     event: K,
-    props?: WellKnownEventPropsMap[K] & Record<string, JSONValue>,
+    props?: WellKnownEventPropsMap[K] & Record<string, JsonValue>,
     options?: TrackOptions
   ): void
-  (event: string, props?: Record<string, JSONValue>, options?: TrackOptions): void
+  (event: string, props?: Record<string, JsonValue>, options?: TrackOptions): void
 }

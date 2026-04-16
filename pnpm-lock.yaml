@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@buf/fivebits_cotton.bufbuild_es':
-        specifier: 2.11.0-20260407030713-e770f3756cb7.1
-        version: 2.11.0-20260407030713-e770f3756cb7.1(@bufbuild/protobuf@2.11.0)
+        specifier: 2.11.0-20260416082914-09d4ee414a60.1
+        version: 2.11.0-20260416082914-09d4ee414a60.1(@bufbuild/protobuf@2.11.0)
       '@bufbuild/protobuf':
         specifier: ^2.11.0
         version: 2.11.0
@@ -86,8 +86,8 @@ packages:
     peerDependencies:
       '@bufbuild/protobuf': ^2.11.0
 
-  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260407030713-e770f3756cb7.1':
-    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/fivebits_cotton.bufbuild_es/-/fivebits_cotton.bufbuild_es-2.11.0-20260407030713-e770f3756cb7.1.tgz}
+  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260416082914-09d4ee414a60.1':
+    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/fivebits_cotton.bufbuild_es/-/fivebits_cotton.bufbuild_es-2.11.0-20260416082914-09d4ee414a60.1.tgz}
     peerDependencies:
       '@bufbuild/protobuf': ^2.11.0
 
@@ -1914,7 +1914,7 @@ snapshots:
     dependencies:
       '@bufbuild/protobuf': 2.11.0
 
-  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260407030713-e770f3756cb7.1(@bufbuild/protobuf@2.11.0)':
+  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260416082914-09d4ee414a60.1(@bufbuild/protobuf@2.11.0)':
     dependencies:
       '@buf/bufbuild_protovalidate.bufbuild_es': 2.11.0-20251209175733-2a1774d88802.1(@bufbuild/protobuf@2.11.0)
       '@bufbuild/protobuf': 2.11.0
