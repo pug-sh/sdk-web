@@ -24,7 +24,8 @@ import {
   resolveDistinctId,
 } from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
-import { toEvent, type JSONValue, type TrackFn, type TrackOptions } from './track.js'
+import { toEvent, type JsonValue, type TrackFn, type TrackOptions } from './track.js'
+import { DEVICE_ID_KEY } from './utils.js'
 
 export interface CottonConfig {
   readonly endpoint: string
@@ -216,8 +217,11 @@ export const reset = () => {
   // only the endpoint and API key from init().
 }
 
-/** Throws on invalid input (sync) and on RPC failure (async). Callers must handle errors. */
-export const identify = async (externalId: string, traits?: Record<string, JSONValue>): Promise<void> => {
+/**
+ * Throws on invalid input (sync) and on RPC failure (async). Callers must handle errors.
+ * On first identify, includes anonymousId (for profile merge) and, if available, deviceId (for push device linking).
+ */
+export const identify = async (externalId: string, traits?: Record<string, JsonValue>): Promise<void> => {
   if (typeof window === 'undefined') {
     log.warn('identify() called in a non-browser environment, skipping.')
     return
@@ -236,10 +240,21 @@ export const identify = async (externalId: string, traits?: Record<string, JSONV
 
   const client = getProfilesClient()
 
+  const firstIdentify = !isIdentified()
+  let deviceId = ''
+  if (firstIdentify) {
+    try {
+      deviceId = localStorage.getItem(DEVICE_ID_KEY) ?? ''
+    } catch (err) {
+      log.warn('localStorage access failed for device ID, skipping push device linking:', err)
+    }
+  }
+
   const req = create(IdentifyRequestSchema, {
     externalId,
     traits,
-    anonymousId: isIdentified() ? '' : getAnonymousId(),
+    ...(firstIdentify && { anonymousId: getAnonymousId() }),
+    ...(deviceId && { deviceId }),
   })
 
   const validation = validator.validate(IdentifyRequestSchema, req)

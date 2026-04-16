@@ -1,3 +1,5 @@
+export const DEVICE_ID_KEY = 'cotton_device_id'
+
 export const makeStorageKey = (projectId: string, name: string): string => `__cotton_${projectId}_${name}__`
 
 export const urlBase64ToUint8Array = (base64String: string): Uint8Array<ArrayBuffer> => {
