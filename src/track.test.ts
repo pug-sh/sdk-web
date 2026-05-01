@@ -65,6 +65,29 @@ describe('schema-driven path (well-known events)', () => {
     expect(ev!.customProperties.extraNote?.value.case).toBe('stringValue')
     expect(ev!.customProperties.extraNote?.value.value).toBe('hello')
   })
+
+  it('drops extras with non-serializable types (function/symbol/undefined) and warns per key', () => {
+    const ev = toEvent(PROJECT_ID, 'click', SESSION_ID, DISTINCT_ID, {
+      tag: 'button',
+      cb: () => {},
+      sym: Symbol('x'),
+      gone: undefined,
+    })
+    expect(ev).not.toBeNull()
+    expect(ev!.customProperties.tag?.value.case).toBe('stringValue')
+    expect(ev!.customProperties.cb).toBeUndefined()
+    expect(ev!.customProperties.sym).toBeUndefined()
+    expect(ev!.customProperties.gone).toBeUndefined()
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Extra property "cb" on event "click" has non-serializable type function')
+    )
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Extra property "sym" on event "click" has non-serializable type symbol')
+    )
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Extra property "gone" on event "click" has non-serializable type undefined')
+    )
+  })
 })
 
 describe('JS heuristic (custom events)', () => {
@@ -125,6 +148,34 @@ describe('JS heuristic (custom events)', () => {
     expect(ev!.customProperties.b).toBeUndefined()
     expect(ev!.customProperties.ok).toBeDefined()
     expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it('drops function and symbol values with per-key warn, keeps event', () => {
+    const ev = toEvent(PROJECT_ID, 'my_event', SESSION_ID, DISTINCT_ID, {
+      fn: () => {},
+      sym: Symbol(),
+      ok: 'kept',
+    })
+    expect(ev).not.toBeNull()
+    expect(ev!.customProperties.fn).toBeUndefined()
+    expect(ev!.customProperties.sym).toBeUndefined()
+    expect(ev!.customProperties.ok).toBeDefined()
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"fn" on event "my_event" not representable (function)')
+    )
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"sym" on event "my_event" not representable (symbol)')
+    )
+  })
+
+  it('drops object containing bigint (JSON.stringify throws), keeps event', () => {
+    // JSON.stringify({ id: 1n }) throws TypeError; jsValueToPropertyValue's catch returns null,
+    // and the per-key warn fires at the call site.
+    const ev = toEvent(PROJECT_ID, 'my_event', SESSION_ID, DISTINCT_ID, { meta: { id: 1n }, ok: 'kept' })
+    expect(ev).not.toBeNull()
+    expect(ev!.customProperties.meta).toBeUndefined()
+    expect(ev!.customProperties.ok).toBeDefined()
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"meta" on event "my_event" not representable'))
   })
 })
 
@@ -196,5 +247,13 @@ describe('Event proto integrity', () => {
     const ev = toEvent(PROJECT_ID, 'my_event', SESSION_ID, DISTINCT_ID)
     expect(ev!.autoProperties.$projectId).toBe(PROJECT_ID)
     expect(ev!.autoProperties.$sdkVersion).toBeTruthy()
+  })
+
+  it('sets sessionId and distinctId as top-level Event fields, not as customProperties', () => {
+    const ev = toEvent(PROJECT_ID, 'my_event', SESSION_ID, DISTINCT_ID, { x: 1 })
+    expect(ev!.sessionId).toBe(SESSION_ID)
+    expect(ev!.distinctId).toBe(DISTINCT_ID)
+    expect(ev!.customProperties.sessionId).toBeUndefined()
+    expect(ev!.customProperties.distinctId).toBeUndefined()
   })
 })

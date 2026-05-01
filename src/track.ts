@@ -4,7 +4,7 @@ import {
 } from '@buf/fivebits_cotton.bufbuild_es/common/v1/property_value_pb.js'
 import { type Event, EventSchema } from '@buf/fivebits_cotton.bufbuild_es/sdk/events/v1/events_pb.js'
 import { create, type DescMessage, type MessageInitShape, type MessageShape, ScalarType } from '@bufbuild/protobuf'
-import { reflect } from '@bufbuild/protobuf/reflect'
+import { reflect, type ScalarValue } from '@bufbuild/protobuf/reflect'
 import { timestampFromMs, timestampNow } from '@bufbuild/protobuf/wkt'
 import { createValidator } from '@bufbuild/protovalidate'
 import { uuidv7 } from 'uuidv7'
@@ -23,10 +23,12 @@ export type {
 
 const validator = createValidator()
 
-// Proto: PropertyValue.string_value caps at 1024 bytes (the proto comment specifies bytes,
-// not codepoints; the server's validate interceptor rejects oversized strings with
-// CodeInvalidArgument and does not truncate). Truncate by UTF-8 byte length, respecting
-// multi-byte sequence boundaries, to match the server's check.
+const isWellKnownEvent = (kind: string): kind is WellKnownEventName => kind in wellKnownSchemas
+
+// Truncate by UTF-8 byte length to stay under proto's `string.max_len = 1024`.
+// protovalidate counts code points, not bytes, so byte truncation is strictly more
+// conservative — a string ≤ 1024 bytes is always ≤ 1024 codepoints (one codepoint is
+// 1–4 UTF-8 bytes).
 const MAX_STRING_BYTES = 1024
 
 const utf8ByteLength = (s: string): number => new TextEncoder().encode(s).byteLength
@@ -67,7 +69,7 @@ const makeStringValue = (raw: string): PropertyValue => {
  * Mapping:
  *   - string         → stringValue (truncated to 1024 UTF-8 bytes if needed)
  *   - boolean        → boolValue
- *   - number         → intValue when integer && safe, else doubleValue;
+ *   - number         → intValue when Number.isSafeInteger, else doubleValue;
  *                      NaN/±Infinity dropped (the validator rejects non-finite doubles)
  *   - bigint         → intValue
  *   - Date           → timestampValue (Date(NaN) dropped)
@@ -89,7 +91,7 @@ const jsValueToPropertyValue = (v: unknown): PropertyValue | null => {
     if (!Number.isFinite(v)) {
       return null
     }
-    if (Number.isInteger(v) && Number.isSafeInteger(v)) {
+    if (Number.isSafeInteger(v)) {
       return create(PropertyValueSchema, { value: { case: 'intValue', value: BigInt(v) } })
     }
     return create(PropertyValueSchema, { value: { case: 'doubleValue', value: v } })
@@ -125,31 +127,34 @@ const jsValueToPropertyValue = (v: unknown): PropertyValue | null => {
  * preserves the schema's int-vs-double distinction even when the user passes an
  * integer-valued double field.
  *
- * Returns `null` for `BYTES` and any scalar type not enumerated here; callers must guard.
+ * Returns `null` for `BYTES`, any scalar type not enumerated here, and any value whose
+ * runtime type doesn't match the scalar (defense in depth — protovalidate already enforces
+ * the type contract upstream, but the guards keep this function honest for direct callers
+ * and future schema bumps). Callers must guard against `null`.
  */
-const scalarToPropertyValue = (v: unknown, scalar: ScalarType): PropertyValue | null => {
+const scalarToPropertyValue = (v: ScalarValue, scalar: ScalarType): PropertyValue | null => {
   switch (scalar) {
     case ScalarType.STRING:
-      return makeStringValue(v as string)
+      return typeof v === 'string' ? makeStringValue(v) : null
     case ScalarType.BOOL:
-      return create(PropertyValueSchema, { value: { case: 'boolValue', value: v as boolean } })
+      return typeof v === 'boolean' ? create(PropertyValueSchema, { value: { case: 'boolValue', value: v } }) : null
     case ScalarType.DOUBLE:
     case ScalarType.FLOAT:
-      return create(PropertyValueSchema, { value: { case: 'doubleValue', value: v as number } })
+      return typeof v === 'number' ? create(PropertyValueSchema, { value: { case: 'doubleValue', value: v } }) : null
     case ScalarType.INT32:
     case ScalarType.UINT32:
     case ScalarType.SINT32:
     case ScalarType.SFIXED32:
     case ScalarType.FIXED32:
-      return create(PropertyValueSchema, { value: { case: 'intValue', value: BigInt(v as number) } })
+      return typeof v === 'number' && Number.isSafeInteger(v)
+        ? create(PropertyValueSchema, { value: { case: 'intValue', value: BigInt(v) } })
+        : null
     case ScalarType.INT64:
     case ScalarType.UINT64:
     case ScalarType.SINT64:
     case ScalarType.SFIXED64:
     case ScalarType.FIXED64:
-      return create(PropertyValueSchema, {
-        value: { case: 'intValue', value: typeof v === 'bigint' ? v : BigInt(v as number | string) },
-      })
+      return typeof v === 'bigint' ? create(PropertyValueSchema, { value: { case: 'intValue', value: v } }) : null
     default:
       // BYTES and any future scalar types we don't know how to map.
       return null
@@ -268,8 +273,8 @@ export const toEvent = (
 ): Event | null => {
   let customProperties: Record<string, PropertyValue> = {}
 
-  if (kind in wellKnownSchemas) {
-    const schema = wellKnownSchemas[kind as WellKnownEventName]
+  if (isWellKnownEvent(kind)) {
+    const schema = wellKnownSchemas[kind]
     const validated = validateWellKnownProps(schema, kind, props ?? {})
     if (!validated.ok) {
       return null
@@ -309,7 +314,7 @@ export const toEvent = (
 
   const result = validator.validate(EventSchema, event)
   if (result.kind !== 'valid') {
-    const source = kind in wellKnownSchemas ? 'well-known' : 'custom'
+    const source = isWellKnownEvent(kind) ? 'well-known' : 'custom'
     log.error(
       `Event "${kind}" (${source}) failed Event-level validation:`,
       result.kind === 'invalid' ? result.violations.map(v => `${v.field}: ${v.message}`).join(', ') : result.error
