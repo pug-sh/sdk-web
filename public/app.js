@@ -133,8 +133,8 @@ function esc(s) {
 }
 
 // Expose to the classic script's interceptor
-window.__cottonRenderEvent = renderEvent
-window.__cottonFlushQueue()
+window.__pugRenderEvent = renderEvent
+window.__pugFlushQueue()
 
 // ── Log Controls ──
 
@@ -146,7 +146,7 @@ pauseBtn.addEventListener('click', () => {
     for (const ev of pauseQueue) renderEvent(ev)
     pauseQueue = []
   }
-  document.title = 'Cotton SDK Test' // DOM mutation to avoid dead click
+  document.title = 'Pug SDK Test' // DOM mutation to avoid dead click
 })
 
 clearBtn.addEventListener('click', () => {
@@ -154,7 +154,7 @@ clearBtn.addEventListener('click', () => {
   eventCount = 0
   eventCountEl.textContent = '0'
   logEmpty.style.display = ''
-  document.title = 'Cotton SDK Test' // DOM mutation to avoid dead click
+  document.title = 'Pug SDK Test' // DOM mutation to avoid dead click
 })
 
 // ── Test Interactions ──

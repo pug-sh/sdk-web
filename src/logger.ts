@@ -1,4 +1,4 @@
-const PREFIX = '[Cotton SDK]'
+const PREFIX = '[Pug SDK]'
 
 const safeConsole =
   (method: 'warn' | 'error' | 'debug') =>

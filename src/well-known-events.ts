@@ -23,7 +23,7 @@ import {
   SignupPropertiesSchema,
   VideoPausePropertiesSchema,
   VideoPlayPropertiesSchema,
-} from '@buf/fivebits_pug.bufbuild_es/common/v1/well_known_events_pb.js'
+} from '@buf/fivebits_cotton.bufbuild_es/common/v1/well_known_events_pb.js'
 import type { JsonValue, MessageInitShape } from '@bufbuild/protobuf'
 
 /** Options passed to `track()`. `immediate` bypasses batching for priority events; `timestamp` overrides the default current-time (epoch milliseconds, e.g. `Date.now()`). */

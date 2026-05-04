@@ -1,4 +1,4 @@
-// Cotton Web SDK — drop-in push notification service worker.
+// Pug Web SDK — drop-in push notification service worker.
 // Copy this file to your public directory and pass its path to subscribePush().
 // See README.md for details.
 
@@ -11,11 +11,11 @@ self.addEventListener('push', event => {
   try {
     data = event.data?.json()
   } catch (err) {
-    console.error('[Cotton SW] Failed to parse push payload:', err)
+    console.error('[Pug SW] Failed to parse push payload:', err)
     return
   }
   if (!data || !data.title) {
-    console.warn('[Cotton SW] Push payload missing required "title" field, ignoring')
+    console.warn('[Pug SW] Push payload missing required "title" field, ignoring')
     return
   }
   event.waitUntil(self.registration.showNotification(data.title, data.options ?? {}))
@@ -33,27 +33,27 @@ self.addEventListener('notificationclick', event => {
         if (windowClients.length > 0) {
           // Only notify the tab being focused — avoids duplicate notification_click events
           const target = windowClients[0]
-          target.postMessage({ type: 'cotton_notification_click', data })
+          target.postMessage({ type: 'pug_notification_click', data })
           return target.focus().catch(err => {
-            console.warn('[Cotton SW] Could not focus existing window:', err)
+            console.warn('[Pug SW] Could not focus existing window:', err)
           })
         }
         // No open page — encode notification data in URL so the page can track on load
         try {
           const url = new URL(targetUrl, self.location.origin)
           if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-            console.warn('[Cotton SW] Refusing to open non-HTTP URL:', targetUrl)
+            console.warn('[Pug SW] Refusing to open non-HTTP URL:', targetUrl)
             return clients.openWindow('/')
           }
-          url.searchParams.set('cotton_nc', JSON.stringify(data))
+          url.searchParams.set('pug_nc', JSON.stringify(data))
           return clients.openWindow(url.toString())
         } catch (err) {
-          console.error('[Cotton SW] Failed to open window for notification click:', err)
+          console.error('[Pug SW] Failed to open window for notification click:', err)
           return clients.openWindow('/')
         }
       })
       .catch(err => {
-        console.error('[Cotton SW] notificationclick handler failed:', err)
+        console.error('[Pug SW] notificationclick handler failed:', err)
         return clients.openWindow('/')
       })
   )

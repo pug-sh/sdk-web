@@ -5,7 +5,7 @@ export const eventPageView = 'page_view' satisfies WellKnownEventName
 
 // Stored at module level so they survive across init/destroy cycles. This enables
 // restoring the original methods on destroy and reactivating orphaned wrappers on
-// re-init. Relies on `track` being a stable module-level function in pug.ts.
+// re-init. Relies on `track` being a stable module-level function in cotton.ts.
 let origPush: typeof history.pushState | null = null
 let origReplace: typeof history.replaceState | null = null
 

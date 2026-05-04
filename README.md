@@ -1,11 +1,11 @@
-# Cotton Web SDK
+# Pug Web SDK
 
-Browser-side analytics and event tracking for Cotton. Auto-captures page views, clicks, scrolls, form interactions, and frustration signals.
+Browser-side analytics and event tracking for Pug. Auto-captures page views, clicks, scrolls, form interactions, and frustration signals.
 
 ## Installation
 
 ```bash
-npm install cotton-web
+npm install pug-web
 ```
 
 ## Usage
@@ -13,7 +13,7 @@ npm install cotton-web
 ### Analytics
 
 ```ts
-import { init, track, destroy } from 'cotton-web'
+import { init, track, destroy } from 'pug-web'
 
 init('your-project-id', {
   token: 'your-api-key',
@@ -57,18 +57,18 @@ Push notifications are opt-in. Import `subscribePush` / `unsubscribePush` only i
 
 You need a service worker to receive push messages. Choose one of two approaches:
 
-#### Option A — Use the Cotton drop-in service worker
+#### Option A — Use the Pug drop-in service worker
 
-Copy `cotton_sw.js` from this package into your public root (or wherever your site is served from). It handles `install`, `activate`, `push`, and `notificationclick` out of the box.
+Copy `pug_sw.js` from this package into your public root (or wherever your site is served from). It handles `install`, `activate`, `push`, and `notificationclick` out of the box.
 
 ```
-cp node_modules/cotton-web/cotton_sw.js public/cotton_sw.js
+cp node_modules/pug-web/pug_sw.js public/pug_sw.js
 ```
 
-Then pass the path when calling `subscribePush` (defaults to `/cotton_sw.js` if omitted):
+Then pass the path when calling `subscribePush` (defaults to `/pug_sw.js` if omitted):
 
 ```ts
-await subscribePush(VAPID_PUBLIC_KEY, { swPath: '/cotton_sw.js' })
+await subscribePush(VAPID_PUBLIC_KEY, { swPath: '/pug_sw.js' })
 ```
 
 #### Option B — Add to your existing service worker
@@ -89,7 +89,7 @@ self.addEventListener('notificationclick', (event) => {
 })
 ```
 
-> **Note:** This simplified handler does not support `setupNotificationClickTracking`. For notification click tracking, use the full `cotton_sw.js` instead.
+> **Note:** This simplified handler does not support `setupNotificationClickTracking`. For notification click tracking, use the full `pug_sw.js` instead.
 
 Then pass your existing service worker path to `subscribePush`:
 
@@ -101,17 +101,17 @@ await subscribePush(VAPID_PUBLIC_KEY, { swPath: '/my-sw.js' })
 
 #### `subscribePush(vapidPublicKey, options)`
 
-Registers the browser for push notifications and sends the subscription to Cotton's `DevicesService.Subscribe` RPC.
+Registers the browser for push notifications and sends the subscription to Pug's `DevicesService.Subscribe` RPC.
 
-- Registers (or reuses) the service worker at `options.swPath` (default: `/cotton_sw.js`).
+- Registers (or reuses) the service worker at `options.swPath` (default: `/pug_sw.js`).
 - Calls `pushManager.subscribe()` with your VAPID public key.
-- Generates (or retrieves) a persistent device ID stored in `localStorage` under `cotton_device_id`.
+- Generates (or retrieves) a persistent device ID stored in `localStorage` under `pug_device_id`.
 - Sends the subscription token to the backend.
 
 **You are responsible for requesting notification permission** before calling `subscribePush`. The browser's `pushManager.subscribe()` will throw if permission has not been granted.
 
 ```ts
-import { subscribePush } from 'cotton-web'
+import { subscribePush } from 'pug-web'
 
 const handleEnablePush = async () => {
   const permission = await Notification.requestPermission()
@@ -120,7 +120,7 @@ const handleEnablePush = async () => {
   await subscribePush('BExampleVAPIDPublicKeyBase64url...', {
     endpoint: 'https://your-backend.example.com', // same as init()
     token: 'your-api-key',                        // same as init()
-    swPath: '/cotton_sw.js',                      // optional, defaults to /cotton_sw.js
+    swPath: '/pug_sw.js',                      // optional, defaults to /pug_sw.js
     profileId: 'user-uuid',                       // optional, links push device to a known profile
     profileExternalId: 'user@example.com',        // optional
   })
@@ -131,8 +131,8 @@ const handleEnablePush = async () => {
 |---|---|---|
 | `endpoint` | `string` | **Required.** Backend base URL (same value passed to `init()`). |
 | `token` | `string` | **Required.** API key (same value passed to `init()`). |
-| `swPath` | `string` | Path to the service worker file. Defaults to `/cotton_sw.js`. |
-| `profileId` | `string` | Cotton profile UUID to associate with this device. |
+| `swPath` | `string` | Path to the service worker file. Defaults to `/pug_sw.js`. |
+| `profileId` | `string` | Pug profile UUID to associate with this device. |
 | `profileExternalId` | `string` | External identifier (e.g. email) to associate with this device. |
 
 #### `setupNotificationClickTracking(track)`
@@ -140,13 +140,13 @@ const handleEnablePush = async () => {
 Tracks `notification_clicked` events reliably across two cases:
 
 - **Page already open** — the service worker sends a `postMessage`; this function listens for it and calls `track`.
-- **Page opened by the click** — the service worker appends `?cotton_nc=<data>` to the URL; this function reads it on load, calls `track`, then removes the param with `history.replaceState`.
+- **Page opened by the click** — the service worker appends `?pug_nc=<data>` to the URL; this function reads it on load, calls `track`, then removes the param with `history.replaceState`.
 
 Call it once after `init()`. It returns a cleanup function — pass it to `destroy()` or call it on SPA teardown.
 
 ```ts
-import { init, track, destroy } from 'cotton-web'
-import { setupNotificationClickTracking } from 'cotton-web'
+import { init, track, destroy } from 'pug-web'
+import { setupNotificationClickTracking } from 'pug-web'
 
 init('your-project-id', { token: 'your-api-key' })
 
@@ -181,9 +181,9 @@ The `notification_clicked` event receives whatever was set in `event.notificatio
 Unsubscribes the browser from push notifications. Does not remove the device from the backend — call your own backend API if you need server-side cleanup.
 
 ```ts
-import { unsubscribePush } from 'cotton-web'
+import { unsubscribePush } from 'pug-web'
 
-await unsubscribePush({ swPath: '/cotton_sw.js' })
+await unsubscribePush({ swPath: '/pug_sw.js' })
 ```
 
 ### Notification payload format

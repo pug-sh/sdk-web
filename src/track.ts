@@ -1,4 +1,4 @@
-import { type Event, EventSchema } from '@buf/fivebits_pug.bufbuild_es/sdk/events/v1/events_pb.js'
+import { type Event, EventSchema } from '@buf/fivebits_cotton.bufbuild_es/sdk/events/v1/events_pb.js'
 import { create, toJson, type DescMessage, type MessageInitShape } from '@bufbuild/protobuf'
 import { timestampFromMs, timestampNow } from '@bufbuild/protobuf/wkt'
 import { createValidator } from '@bufbuild/protovalidate'

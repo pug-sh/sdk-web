@@ -8,7 +8,7 @@ import type { JsonValue, TrackFn, WellKnownEventName } from './track.js'
 import { DEVICE_ID_KEY, isStorageAvailable, urlBase64ToUint8Array } from './utils.js'
 
 const validator = createValidator()
-const DEFAULT_SW_PATH = '/cotton_sw.js'
+const DEFAULT_SW_PATH = '/pug_sw.js'
 const SW_ACTIVATE_TIMEOUT_MS = 10_000
 
 const generateDeviceId = (): string => {
@@ -62,7 +62,7 @@ const waitForServiceWorkerActive = (reg: ServiceWorkerRegistration): Promise<voi
     }
     const worker = reg.installing ?? reg.waiting
     if (!worker) {
-      reject(new Error('[Cotton SDK] Service worker registration has no installing, waiting, or active worker'))
+      reject(new Error('[Pug SDK] Service worker registration has no installing, waiting, or active worker'))
       return
     }
 
@@ -70,7 +70,7 @@ const waitForServiceWorkerActive = (reg: ServiceWorkerRegistration): Promise<voi
       worker.removeEventListener('statechange', onStateChange)
       reject(
         new Error(
-          `[Cotton SDK] Service worker did not activate within ${SW_ACTIVATE_TIMEOUT_MS}ms (state: ${worker.state})`
+          `[Pug SDK] Service worker did not activate within ${SW_ACTIVATE_TIMEOUT_MS}ms (state: ${worker.state})`
         )
       )
     }, SW_ACTIVATE_TIMEOUT_MS)
@@ -79,7 +79,7 @@ const waitForServiceWorkerActive = (reg: ServiceWorkerRegistration): Promise<voi
       if (worker.state === 'redundant') {
         clearTimeout(timer)
         worker.removeEventListener('statechange', onStateChange)
-        reject(new Error('[Cotton SDK] Service worker became redundant and will not activate'))
+        reject(new Error('[Pug SDK] Service worker became redundant and will not activate'))
         return
       }
       if (reg.active) {
@@ -108,20 +108,20 @@ export interface PushOptions {
  * Requires `Notification.requestPermission()` to be granted before calling.
  * Throws if Web Push is unsupported, inputs are invalid, or the backend call fails.
  * Creates its own RPC transport (separate from the analytics transport created by `init()`).
- * Persists a device ID to `localStorage` under `cotton_device_id`.
+ * Persists a device ID to `localStorage` under `pug_device_id`.
  */
 export const subscribePush = async (vapidPublicKey: string, options: PushOptions): Promise<void> => {
   if (!vapidPublicKey || typeof vapidPublicKey !== 'string') {
-    throw new Error('[Cotton SDK] vapidPublicKey is required and must be a non-empty string')
+    throw new Error('[Pug SDK] vapidPublicKey is required and must be a non-empty string')
   }
   if (!options.endpoint || typeof options.endpoint !== 'string') {
-    throw new Error('[Cotton SDK] options.endpoint is required and must be a non-empty string')
+    throw new Error('[Pug SDK] options.endpoint is required and must be a non-empty string')
   }
   if (!options.apiKey || typeof options.apiKey !== 'string') {
-    throw new Error('[Cotton SDK] options.apiKey is required and must be a non-empty string')
+    throw new Error('[Pug SDK] options.apiKey is required and must be a non-empty string')
   }
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    throw new Error('[Cotton SDK] Web Push is not supported in this browser')
+    throw new Error('[Pug SDK] Web Push is not supported in this browser')
   }
 
   const swPath = options.swPath ?? DEFAULT_SW_PATH
@@ -133,7 +133,7 @@ export const subscribePush = async (vapidPublicKey: string, options: PushOptions
   try {
     applicationServerKey = urlBase64ToUint8Array(vapidPublicKey)
   } catch (err) {
-    throw new Error(`[Cotton SDK] Invalid VAPID public key (must be valid base64url): ${err}`)
+    throw new Error(`[Pug SDK] Invalid VAPID public key (must be valid base64url): ${err}`)
   }
 
   const subscription = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })
@@ -161,7 +161,7 @@ export const subscribePush = async (vapidPublicKey: string, options: PushOptions
       result.kind === 'invalid'
         ? result.violations.map(v => `${v.field}: ${v.message}`).join(', ')
         : String(result.error)
-    throw new Error(`[Cotton SDK] Invalid subscribe request: ${detail}`)
+    throw new Error(`[Pug SDK] Invalid subscribe request: ${detail}`)
   }
 
   await devicesClient.subscribe(request)
@@ -203,7 +203,7 @@ const trackNotificationClick = (track: TrackFn, data: Record<string, JsonValue>)
 /**
  * Sets up notification click tracking. Call once after init().
  * Handles two cases:
- * - Page was opened by the click: SW encodes data in `?cotton_nc=`, read and stripped here.
+ * - Page was opened by the click: SW encodes data in `?pug_nc=`, read and stripped here.
  * - Page was already open: SW sends a postMessage, captured here.
  *
  * Returns a cleanup function. Call it before destroy() or on SPA teardown.
@@ -212,18 +212,18 @@ export const setupNotificationClickTracking = (track: TrackFn): (() => void) => 
   // URL path: page was opened by the notification click — data is in the URL
   if (typeof window !== 'undefined' && typeof history !== 'undefined') {
     const url = new URL(location.href)
-    const param = url.searchParams.get('cotton_nc')
+    const param = url.searchParams.get('pug_nc')
     if (param) {
       try {
         trackNotificationClick(track, sanitizeNotificationData(JSON.parse(param)))
       } catch (err) {
-        log.warn('Malformed cotton_nc parameter:', err)
+        log.warn('Malformed pug_nc parameter:', err)
       }
       try {
-        url.searchParams.delete('cotton_nc')
+        url.searchParams.delete('pug_nc')
         history.replaceState(null, '', url.toString())
       } catch (err) {
-        log.warn('Failed to strip cotton_nc parameter from URL:', err)
+        log.warn('Failed to strip pug_nc parameter from URL:', err)
       }
     }
   }
@@ -238,7 +238,7 @@ export const setupNotificationClickTracking = (track: TrackFn): (() => void) => 
     if (!(event.source instanceof ServiceWorker)) {
       return
     }
-    if (event.data?.type === 'cotton_notification_click') {
+    if (event.data?.type === 'pug_notification_click') {
       trackNotificationClick(track, sanitizeNotificationData(event.data.data))
     }
   }
@@ -271,6 +271,6 @@ export const unsubscribePush = async (options?: Pick<PushOptions, 'swPath'>): Pr
 
   const success = await subscription.unsubscribe()
   if (!success) {
-    throw new Error('[Cotton SDK] Browser reported push unsubscription failed')
+    throw new Error('[Pug SDK] Browser reported push unsubscription failed')
   }
 }

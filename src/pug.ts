@@ -27,7 +27,7 @@ import { configureSession, destroySession, resetIdentity, resolveSessionId, type
 import { toEvent, type JsonValue, type TrackFn, type TrackOptions } from './track.js'
 import { DEVICE_ID_KEY } from './utils.js'
 
-export interface CottonConfig {
+export interface PugConfig {
   readonly endpoint: string
   readonly projectId: string
 }
@@ -42,8 +42,8 @@ export interface InitOptions {
   readonly autoTrack?: boolean
 }
 
-interface CottonState {
-  readonly config: CottonConfig
+interface PugState {
+  readonly config: PugConfig
   readonly transport: ReturnType<typeof createBatchedTransport>
   readonly apiKey: string
   readonly dryRun: boolean
@@ -51,7 +51,7 @@ interface CottonState {
 
 const validator = createValidator()
 
-let state: CottonState | null = null
+let state: PugState | null = null
 let cleanups: { name: string; fn: () => void }[] = []
 
 type ProfilesClient = ReturnType<typeof createClient<typeof ProfilesSDKService>>
@@ -63,7 +63,7 @@ const getProfilesClient = (): ProfilesClient => {
     return profilesClient
   }
   if (!state) {
-    throw new Error('[Cotton SDK] Cannot create profiles client: SDK not initialized')
+    throw new Error('[Pug SDK] Cannot create profiles client: SDK not initialized')
   }
   profilesClient = createClient(ProfilesSDKService, createApiTransport(state.config.endpoint, state.apiKey))
   return profilesClient
@@ -76,11 +76,11 @@ export const init = (projectId: string, options: InitOptions) => {
   }
 
   if (!projectId || typeof projectId !== 'string') {
-    throw new Error('[Cotton SDK] projectId is required and must be a non-empty string')
+    throw new Error('[Pug SDK] projectId is required and must be a non-empty string')
   }
 
   if (!options.apiKey || typeof options.apiKey !== 'string') {
-    throw new Error('[Cotton SDK] apiKey is required and must be a non-empty string')
+    throw new Error('[Pug SDK] apiKey is required and must be a non-empty string')
   }
 
   if (state) {
@@ -97,7 +97,7 @@ export const init = (projectId: string, options: InitOptions) => {
   // TODO(sampling): implement session-level sampling — either hash a device/user ID
   // for deterministic sampling or use a random per-session coin flip.
 
-  const config: CottonConfig = { endpoint: options.endpoint || 'http://localhost:8080', projectId }
+  const config: PugConfig = { endpoint: options.endpoint || 'http://localhost:8080', projectId }
 
   cleanups = []
 
@@ -231,7 +231,7 @@ export const identify = async (externalId: string, traits?: Record<string, JsonV
     return
   }
   if (!externalId || typeof externalId !== 'string') {
-    throw new Error('[Cotton SDK] identify() requires a non-empty externalId string')
+    throw new Error('[Pug SDK] identify() requires a non-empty externalId string')
   }
   if (state.dryRun) {
     log.debug('dryRun: would identify')
@@ -263,7 +263,7 @@ export const identify = async (externalId: string, traits?: Record<string, JsonV
       validation.kind === 'invalid'
         ? validation.violations.map(v => `${v.field}: ${v.message}`).join(', ')
         : String(validation.error)
-    throw new Error(`[Cotton SDK] Invalid identify request: ${detail}`)
+    throw new Error(`[Pug SDK] Invalid identify request: ${detail}`)
   }
 
   try {
