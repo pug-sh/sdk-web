@@ -1,4 +1,4 @@
-import { DevicesService, SubscribeRequestSchema } from '@buf/fivebits_cotton.bufbuild_es/sdk/devices/v1/devices_pb.js'
+import { DevicesService, SubscribeRequestSchema } from '@buf/fivebits_pug.bufbuild_es/sdk/devices/v1/devices_pb.js'
 import { create, type JsonObject } from '@bufbuild/protobuf'
 import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'

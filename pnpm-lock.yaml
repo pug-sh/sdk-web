@@ -8,9 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@buf/fivebits_cotton.bufbuild_es':
-        specifier: 2.11.0-20260416082914-09d4ee414a60.1
-        version: 2.11.0-20260416082914-09d4ee414a60.1(@bufbuild/protobuf@2.11.0)
+      '@buf/fivebits_pug.bufbuild_es':
+        specifier: 2.12.0-20260506044109-e00079fd5b34.1
+        version: 2.12.0-20260506044109-e00079fd5b34.1(@bufbuild/protobuf@2.11.0)
       '@bufbuild/protobuf':
         specifier: ^2.11.0
         version: 2.11.0
@@ -81,15 +81,15 @@ packages:
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
 
-  '@buf/bufbuild_protovalidate.bufbuild_es@2.11.0-20251209175733-2a1774d88802.1':
-    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/bufbuild_protovalidate.bufbuild_es/-/bufbuild_protovalidate.bufbuild_es-2.11.0-20251209175733-2a1774d88802.1.tgz}
+  '@buf/bufbuild_protovalidate.bufbuild_es@2.12.0-20251209175733-2a1774d88802.1':
+    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/bufbuild_protovalidate.bufbuild_es/-/bufbuild_protovalidate.bufbuild_es-2.12.0-20251209175733-2a1774d88802.1.tgz}
     peerDependencies:
-      '@bufbuild/protobuf': ^2.11.0
+      '@bufbuild/protobuf': ^2.12.0
 
-  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260416082914-09d4ee414a60.1':
-    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/fivebits_cotton.bufbuild_es/-/fivebits_cotton.bufbuild_es-2.11.0-20260416082914-09d4ee414a60.1.tgz}
+  '@buf/fivebits_pug.bufbuild_es@2.12.0-20260506044109-e00079fd5b34.1':
+    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/fivebits_pug.bufbuild_es/-/fivebits_pug.bufbuild_es-2.12.0-20260506044109-e00079fd5b34.1.tgz}
     peerDependencies:
-      '@bufbuild/protobuf': ^2.11.0
+      '@bufbuild/protobuf': ^2.12.0
 
   '@bufbuild/cel-spec@0.4.0':
     resolution: {integrity: sha512-dUS6f2fNt6KEumsYGE7YFxERZE5ZuyME1hQmGjtO8tkZhR6ow6/ne3v4Gik9cfdb9lSLK3AJ+vDxCdGWmDbWvA==}
@@ -1910,13 +1910,13 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  '@buf/bufbuild_protovalidate.bufbuild_es@2.11.0-20251209175733-2a1774d88802.1(@bufbuild/protobuf@2.11.0)':
+  '@buf/bufbuild_protovalidate.bufbuild_es@2.12.0-20251209175733-2a1774d88802.1(@bufbuild/protobuf@2.11.0)':
     dependencies:
       '@bufbuild/protobuf': 2.11.0
 
-  '@buf/fivebits_cotton.bufbuild_es@2.11.0-20260416082914-09d4ee414a60.1(@bufbuild/protobuf@2.11.0)':
+  '@buf/fivebits_pug.bufbuild_es@2.12.0-20260506044109-e00079fd5b34.1(@bufbuild/protobuf@2.11.0)':
     dependencies:
-      '@buf/bufbuild_protovalidate.bufbuild_es': 2.11.0-20251209175733-2a1774d88802.1(@bufbuild/protobuf@2.11.0)
+      '@buf/bufbuild_protovalidate.bufbuild_es': 2.12.0-20251209175733-2a1774d88802.1(@bufbuild/protobuf@2.11.0)
       '@bufbuild/protobuf': 2.11.0
 
   '@bufbuild/cel-spec@0.4.0(@bufbuild/protobuf@2.11.0)':

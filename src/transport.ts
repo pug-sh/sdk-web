@@ -1,4 +1,4 @@
-import { BatchCreateRequestSchema, Event } from '@buf/fivebits_cotton.bufbuild_es/sdk/events/v1/events_pb.js'
+import { BatchCreateRequestSchema, Event } from '@buf/fivebits_pug.bufbuild_es/sdk/events/v1/events_pb.js'
 import { create, toBinary } from '@bufbuild/protobuf'
 import { log } from './logger.js'
 import { createRpcClients } from './rpc.js'
