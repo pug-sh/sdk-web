@@ -92,9 +92,7 @@ const normalizeAutoTrack = (autoTrack: InitOptions['autoTrack']): AutoTrackKey[]
     log.warn(`Unknown autoTrack keys: ${unknownKeys.join(', ')}. Supported keys: ${trackerKeys.join(', ')}`)
   }
 
-  const invalidKeys = trackerKeys.filter(
-    key => autoTrack[key] !== undefined && typeof autoTrack[key] !== 'boolean'
-  )
+  const invalidKeys = trackerKeys.filter(key => autoTrack[key] !== undefined && typeof autoTrack[key] !== 'boolean')
   if (invalidKeys.length > 0) {
     log.warn(`autoTrack values must be boolean for keys: ${invalidKeys.join(', ')}. Ignoring invalid values.`)
   }
