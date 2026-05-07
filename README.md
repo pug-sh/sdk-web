@@ -16,7 +16,7 @@ npm install pug-web
 import { init, identify, track, destroy } from 'pug-web'
 
 init('your-project-id', {
-  token: 'your-api-key',
+  apiKey: 'your-api-key',
   endpoint: 'https://your-backend.example.com',
 })
 
@@ -35,14 +35,28 @@ destroy()
 
 All standard events (page views, clicks, scrolls, forms, rage clicks, dead clicks) are captured automatically after `init()`.
 
+To selectively enable only some auto-captured events:
+
+```ts
+init('your-project-id', {
+  apiKey: 'your-api-key',
+  autoTrack: {
+    pageView: true,
+    click: true,
+    scroll: false,
+  },
+})
+```
+
 ### Init options
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `token` | `string` | — | **Required.** API key. |
+| `apiKey` | `string` | — | **Required.** API key. |
 | `endpoint` | `string` | `http://localhost:8080` | Backend base URL. |
 | `samplingRate` | `number` | `1` | Fraction of sessions to track (0–1). |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
+| `autoTrack` | `boolean \| AutoTrackSelection` | `true` | `false` disables all auto-capture; an object enables only the keys set to `true`. |
 
 ### API
 

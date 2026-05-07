@@ -36,8 +36,21 @@ export interface InitOptions {
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
   readonly session?: SessionConfig
-  readonly autoTrack?: boolean
+  readonly autoTrack?: AutoTrackOptions
 }
+
+export interface AutoTrackSelection {
+  readonly pageView?: boolean
+  readonly click?: boolean
+  readonly scroll?: boolean
+  readonly form?: boolean
+  readonly rageClick?: boolean
+  readonly deadClick?: boolean
+}
+
+export type AutoTrackOptions = boolean | AutoTrackSelection
+
+type AutoTrackKey = keyof AutoTrackSelection
 
 interface PugState {
   readonly config: PugConfig
@@ -50,6 +63,44 @@ const validator = createValidator()
 
 let state: PugState | null = null
 let cleanups: { name: string; fn: () => void }[] = []
+
+const trackers = {
+  pageView: setupPageViewTracking,
+  click: setupClickTracking,
+  scroll: setupScrollTracking,
+  form: setupFormTracking,
+  rageClick: setupRageClickTracking,
+  deadClick: setupDeadClickTracking,
+} satisfies Record<AutoTrackKey, (track: TrackFn) => () => void>
+
+const trackerKeys = Object.keys(trackers) as AutoTrackKey[]
+
+const normalizeAutoTrack = (autoTrack: InitOptions['autoTrack']): AutoTrackKey[] => {
+  if (autoTrack === undefined || autoTrack === true) {
+    return trackerKeys
+  }
+  if (autoTrack === false) {
+    return []
+  }
+  if (typeof autoTrack !== 'object' || autoTrack === null || Array.isArray(autoTrack)) {
+    log.warn(`autoTrack must be a boolean or object, got ${typeof autoTrack}. Defaulting to all trackers.`)
+    return trackerKeys
+  }
+
+  const unknownKeys = Object.keys(autoTrack).filter((key): key is string => !trackerKeys.includes(key as AutoTrackKey))
+  if (unknownKeys.length > 0) {
+    log.warn(`Unknown autoTrack keys: ${unknownKeys.join(', ')}. Supported keys: ${trackerKeys.join(', ')}`)
+  }
+
+  const invalidKeys = trackerKeys.filter(
+    key => autoTrack[key] !== undefined && typeof autoTrack[key] !== 'boolean'
+  )
+  if (invalidKeys.length > 0) {
+    log.warn(`autoTrack values must be boolean for keys: ${invalidKeys.join(', ')}. Ignoring invalid values.`)
+  }
+
+  return trackerKeys.filter(key => autoTrack[key] === true)
+}
 
 type ProfilesClient = ReturnType<typeof createClient<typeof ProfilesSDKService>>
 
@@ -124,27 +175,16 @@ export const init = (projectId: string, options: InitOptions) => {
     log.warn('Dry run mode enabled — events will not be sent.')
   }
 
-  const autoTrack = typeof options.autoTrack === 'boolean' ? options.autoTrack : true
-  if (options.autoTrack !== undefined && !autoTrack) {
-    log.warn(`autoTrack must be a boolean, got ${typeof options.autoTrack}. Defaulting to true.`)
-  }
+  const enabledTrackers = normalizeAutoTrack(options.autoTrack)
 
-  if (!autoTrack) {
+  if (enabledTrackers.length === 0) {
     log.warn('Initialized (autoTrack disabled — no trackers).')
     return
   }
 
-  const trackers = [
-    setupPageViewTracking,
-    setupClickTracking,
-    setupScrollTracking,
-    setupFormTracking,
-    setupRageClickTracking,
-    setupDeadClickTracking,
-  ]
-
   let failedCount = 0
-  for (const setup of trackers) {
+  for (const key of enabledTrackers) {
+    const setup = trackers[key]
     try {
       const cleanup = setup(track)
       cleanups.push({ name: setup.name, fn: cleanup })
@@ -154,7 +194,7 @@ export const init = (projectId: string, options: InitOptions) => {
     }
   }
   if (failedCount > 0) {
-    log.warn(`${failedCount}/${trackers.length} trackers failed to initialize.`)
+    log.warn(`${failedCount}/${enabledTrackers.length} trackers failed to initialize.`)
   }
 
   log.debug('Initialized.')
