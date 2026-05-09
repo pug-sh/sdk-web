@@ -1,4 +1,5 @@
 import { init } from '../dist/index.js'
+
 init('test-project', { endpoint: 'http://localhost:9000' })
 
 // ── Event Log Rendering (Shadow DOM) ──

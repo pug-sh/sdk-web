@@ -1,4 +1,8 @@
-* { margin: 0; padding: 0; box-sizing: border-box; }
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
 
 :root {
   --bg: #242424;
@@ -19,7 +23,8 @@
 }
 
 body {
-  font-family: -apple-system, "system-ui", "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family:
+    -apple-system, "system-ui", "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   background: var(--surface);
   color: var(--text);
   line-height: 1.55;
@@ -77,12 +82,30 @@ body {
   line-height: 1.6;
 }
 
-.badge-click { background: rgba(77, 115, 152, 0.2); color: #7aabcf; }
-.badge-rage { background: rgba(166, 89, 102, 0.2); color: #d08a96; }
-.badge-dead { background: rgba(172, 120, 83, 0.2); color: #cfa47a; }
-.badge-formstart { background: rgba(77, 128, 111, 0.2); color: #7ab8a0; }
-.badge-formsubmit { background: rgba(103, 131, 83, 0.2); color: #96b37a; }
-.badge-scroll { background: rgba(123, 89, 141, 0.2); color: #a98abd; }
+.badge-click {
+  background: rgba(77, 115, 152, 0.2);
+  color: #7aabcf;
+}
+.badge-rage {
+  background: rgba(166, 89, 102, 0.2);
+  color: #d08a96;
+}
+.badge-dead {
+  background: rgba(172, 120, 83, 0.2);
+  color: #cfa47a;
+}
+.badge-formstart {
+  background: rgba(77, 128, 111, 0.2);
+  color: #7ab8a0;
+}
+.badge-formsubmit {
+  background: rgba(103, 131, 83, 0.2);
+  color: #96b37a;
+}
+.badge-scroll {
+  background: rgba(123, 89, 141, 0.2);
+  color: #a98abd;
+}
 
 .section p.desc {
   color: var(--text-faint);
@@ -113,7 +136,9 @@ button {
   font-size: 0.85rem;
   font-weight: 400;
   font-family: inherit;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 button:hover {
@@ -159,7 +184,8 @@ form {
   font-weight: 500;
 }
 
-input[type="text"], input[type="email"] {
+input[type="text"],
+input[type="email"] {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
@@ -189,14 +215,24 @@ input:focus {
   left: 12px;
   font-size: 0.75rem;
   color: var(--text-faint);
-  font-family: 'SF Mono', SFMono-Regular, Consolas, monospace;
+  font-family: "SF Mono", SFMono-Regular, Consolas, monospace;
 }
 
-.at-0 { top: 8px; }
-.at-25 { top: 25%; }
-.at-50 { top: 50%; }
-.at-75 { top: 75%; }
-.at-100 { bottom: 8px; }
+.at-0 {
+  top: 8px;
+}
+.at-25 {
+  top: 25%;
+}
+.at-50 {
+  top: 50%;
+}
+.at-75 {
+  top: 75%;
+}
+.at-100 {
+  bottom: 8px;
+}
 
 /* ── Right: Event Log Panel ── */
 .event-log-panel {

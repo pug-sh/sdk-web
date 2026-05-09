@@ -1,4 +1,4 @@
-import { EventSchema, type Event } from '@buf/fivebits_pug.bufbuild_es/sdk/events/v1/events_pb.js'
+import { type Event, EventSchema } from '@buf/fivebits_pug.bufbuild_es/sdk/events/v1/events_pb.js'
 import { fromJson, JsonValue, toJson } from '@bufbuild/protobuf'
 import { ConnectError } from '@connectrpc/connect'
 import { log } from './logger.js'
@@ -195,7 +195,7 @@ export const createBatchedTransport = (
   endpoint: string,
   apiKey: string,
   projectId: string,
-  partialConfig?: Partial<BatchConfig>
+  partialConfig?: Partial<BatchConfig>,
 ) => {
   const merged = { ...DEFAULT_BATCH_CONFIG, ...partialConfig }
   const validated = (name: string, value: number, min: number, fallback: number) => {

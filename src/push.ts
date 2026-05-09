@@ -70,8 +70,8 @@ const waitForServiceWorkerActive = (reg: ServiceWorkerRegistration): Promise<voi
       worker.removeEventListener('statechange', onStateChange)
       reject(
         new Error(
-          `[Pug SDK] Service worker did not activate within ${SW_ACTIVATE_TIMEOUT_MS}ms (state: ${worker.state})`
-        )
+          `[Pug SDK] Service worker did not activate within ${SW_ACTIVATE_TIMEOUT_MS}ms (state: ${worker.state})`,
+        ),
       )
     }, SW_ACTIVATE_TIMEOUT_MS)
 

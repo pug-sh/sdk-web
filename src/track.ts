@@ -174,7 +174,7 @@ type WellKnownValidation<Desc extends DescMessage> =
 const validateWellKnownProps = <Desc extends DescMessage>(
   schema: Desc,
   kind: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): WellKnownValidation<Desc> => {
   const knownNames = new Set(schema.fields.map(f => f.localName))
   const knownData: Record<string, unknown> = {}
@@ -201,7 +201,7 @@ const validateWellKnownProps = <Desc extends DescMessage>(
   if (result.kind !== 'valid') {
     log.error(
       `Event "${kind}" dropped: properties validation failed for "${schema.typeName}":`,
-      result.kind === 'invalid' ? result.violations.map(v => `${v.field}: ${v.message}`).join(', ') : result.error
+      result.kind === 'invalid' ? result.violations.map(v => `${v.field}: ${v.message}`).join(', ') : result.error,
     )
     return { ok: false }
   }
@@ -220,7 +220,7 @@ const validateWellKnownProps = <Desc extends DescMessage>(
  */
 const buildKnownPropertyMap = <Desc extends DescMessage>(
   schema: Desc,
-  msg: MessageShape<Desc>
+  msg: MessageShape<Desc>,
 ): Record<string, PropertyValue> => {
   const out: Record<string, PropertyValue> = {}
   const r = reflect(schema, msg, false)
@@ -238,7 +238,7 @@ const buildKnownPropertyMap = <Desc extends DescMessage>(
       out[field.localName] = pv
     } else {
       log.warn(
-        `Field "${schema.typeName}.${field.localName}" has unsupported scalar type ${ScalarType[field.scalar]}, skipping`
+        `Field "${schema.typeName}.${field.localName}" has unsupported scalar type ${ScalarType[field.scalar]}, skipping`,
       )
     }
   }
@@ -248,7 +248,7 @@ const buildKnownPropertyMap = <Desc extends DescMessage>(
 const mapPropsViaHeuristic = (
   source: Record<string, unknown>,
   customProperties: Record<string, PropertyValue>,
-  kind: string
+  kind: string,
 ): void => {
   for (const [k, v] of Object.entries(source)) {
     const pv = jsValueToPropertyValue(v)
@@ -262,7 +262,7 @@ const mapPropsViaHeuristic = (
 
 const mapObjectValuesViaHeuristic = <T>(
   source: Record<string, T>,
-  transform: (value: T) => PropertyValue
+  transform: (value: T) => PropertyValue,
 ): Record<string, PropertyValue> => {
   const result: Record<string, PropertyValue> = {}
   for (const [k, v] of Object.entries(source)) {
@@ -277,7 +277,7 @@ export const toEvent = (
   sessionId: string,
   distinctId: string,
   props?: Record<string, unknown>,
-  opts?: TrackOptions
+  opts?: TrackOptions,
 ): Event | null => {
   let customProperties: Record<string, PropertyValue> = {}
 
@@ -311,7 +311,7 @@ export const toEvent = (
             ...parseUserAgentData(),
             ...parseUtmParams(window.location.search),
           },
-          makeStringValue
+          makeStringValue,
         ),
       },
       customProperties,
@@ -330,7 +330,7 @@ export const toEvent = (
     const source = isWellKnownEvent(kind) ? 'well-known' : 'custom'
     log.error(
       `Event "${kind}" (${source}) failed Event-level validation:`,
-      result.kind === 'invalid' ? result.violations.map(v => `${v.field}: ${v.message}`).join(', ') : result.error
+      result.kind === 'invalid' ? result.violations.map(v => `${v.field}: ${v.message}`).join(', ') : result.error,
     )
     return null
   }

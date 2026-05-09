@@ -10,10 +10,8 @@
     "watch": "tsc -w",
     "dev": "tsc -w & serve . & sleep 1 && open http://localhost:3000 && wait",
     "serve": "serve . & sleep 1 && open http://localhost:3000 && wait",
-    "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix",
-    "format": "prettier --write \"src/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\"",
+    "lint": "biome check --write .",
+    "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -33,25 +31,10 @@
   "author": "Pug",
   "license": "ISC",
   "devDependencies": {
-    "@eslint/js": "^9.36.0",
-    "eslint": "^9.36.0",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-import": "^2.32.0",
-    "eslint-plugin-prettier": "^5.5.5",
-    "globals": "^16.4.0",
+    "@biomejs/biome": "2.4.14",
     "jsdom": "^29.0.1",
-    "prettier": "^3.5.0",
     "serve": "^14.2.6",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.45.0",
     "vitest": "^4.1.1"
-  },
-  "prettier": {
-    "arrowParens": "avoid",
-    "printWidth": 120,
-    "singleQuote": true,
-    "semi": false,
-    "tabWidth": 2,
-    "trailingComma": "es5"
   }
 }

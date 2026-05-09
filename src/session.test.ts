@@ -272,7 +272,7 @@ describe('tab detection', () => {
     const now = Date.now()
     mockStorage.setItem(
       SESSION_KEY,
-      JSON.stringify({ sessionId: 'old-session', deviceId: 'dev-1', startTime: now, lastActivityTime: now })
+      JSON.stringify({ sessionId: 'old-session', deviceId: 'dev-1', startTime: now, lastActivityTime: now }),
     )
     mockStorage.setItem(TABS_KEY, JSON.stringify({ 'stale-tab': now - 31 * 60 * 1000 }))
     destroySession()
@@ -307,7 +307,7 @@ describe('cross-tab sync', () => {
         deviceId: 'shared-device',
         startTime: now,
         lastActivityTime: now,
-      })
+      }),
     )
     const id = resolveSessionId()
     expect(id).toBe('from-other-tab')
@@ -318,7 +318,7 @@ describe('read validation', () => {
   it('rejects stored state with non-string sessionId', () => {
     mockStorage.setItem(
       SESSION_KEY,
-      JSON.stringify({ sessionId: 123, deviceId: 'dev', startTime: 1, lastActivityTime: 1 })
+      JSON.stringify({ sessionId: 123, deviceId: 'dev', startTime: 1, lastActivityTime: 1 }),
     )
     destroySession()
     configureSession(PROJECT_ID)
@@ -329,7 +329,7 @@ describe('read validation', () => {
   it('rejects stored state with non-number timestamps', () => {
     mockStorage.setItem(
       SESSION_KEY,
-      JSON.stringify({ sessionId: 'sid', deviceId: 'dev', startTime: 'bad', lastActivityTime: 1 })
+      JSON.stringify({ sessionId: 'sid', deviceId: 'dev', startTime: 'bad', lastActivityTime: 1 }),
     )
     destroySession()
     configureSession(PROJECT_ID)

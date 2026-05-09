@@ -26,7 +26,7 @@ export const setupRageClickTracking = (track: TrackFn) => {
     if (clicks.length >= CLICKS_THRESHOLD) {
       const first = clicks[0]
       const allClose = clicks.every(
-        c => Math.abs(c.x - first.x) < DISTANCE_THRESHOLD && Math.abs(c.y - first.y) < DISTANCE_THRESHOLD
+        c => Math.abs(c.x - first.x) < DISTANCE_THRESHOLD && Math.abs(c.y - first.y) < DISTANCE_THRESHOLD,
       )
 
       if (allClose) {

@@ -18,7 +18,7 @@ export const createTransport = (endpoint: string, apiKey: string) => {
         const blob = new Blob([bytes], { type: 'application/proto' })
         return navigator.sendBeacon(
           `${endpoint.replace(/\/$/, '')}/sdk.events.v1.EventsService/BatchCreate?api_key=${encodeURIComponent(apiKey)}`,
-          blob
+          blob,
         )
       } catch (err) {
         log.error('beacon serialization/send failed:', err)

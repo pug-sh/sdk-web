@@ -55,6 +55,6 @@ self.addEventListener('notificationclick', event => {
       .catch(err => {
         console.error('[Pug SW] notificationclick handler failed:', err)
         return clients.openWindow('/')
-      })
+      }),
   )
 })

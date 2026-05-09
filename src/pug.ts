@@ -21,7 +21,7 @@ import {
   resolveDistinctId,
 } from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
-import { toEvent, type JsonValue, type TrackFn, type TrackOptions } from './track.js'
+import { type JsonValue, type TrackFn, type TrackOptions, toEvent } from './track.js'
 import { DEVICE_ID_KEY } from './utils.js'
 
 export interface PugConfig {

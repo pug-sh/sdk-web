@@ -79,13 +79,13 @@ describe('schema-driven path (well-known events)', () => {
     expect(ev!.customProperties.sym).toBeUndefined()
     expect(ev!.customProperties.gone).toBeUndefined()
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Extra property "cb" on event "click" has non-serializable type function')
+      expect.stringContaining('Extra property "cb" on event "click" has non-serializable type function'),
     )
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Extra property "sym" on event "click" has non-serializable type symbol')
+      expect.stringContaining('Extra property "sym" on event "click" has non-serializable type symbol'),
     )
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Extra property "gone" on event "click" has non-serializable type undefined')
+      expect.stringContaining('Extra property "gone" on event "click" has non-serializable type undefined'),
     )
   })
 })
@@ -161,10 +161,10 @@ describe('JS heuristic (custom events)', () => {
     expect(ev!.customProperties.sym).toBeUndefined()
     expect(ev!.customProperties.ok).toBeDefined()
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('"fn" on event "my_event" not representable (function)')
+      expect.stringContaining('"fn" on event "my_event" not representable (function)'),
     )
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('"sym" on event "my_event" not representable (symbol)')
+      expect.stringContaining('"sym" on event "my_event" not representable (symbol)'),
     )
   })
 
