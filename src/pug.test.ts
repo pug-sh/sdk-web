@@ -9,6 +9,11 @@ const cleanupSpies = {
   deadClick: vi.fn(),
 }
 
+const transportSpies = {
+  send: vi.fn(() => Promise.resolve()),
+  destroy: vi.fn(),
+}
+
 const trackerSpies = {
   pageView: vi.fn(() => cleanupSpies.pageView),
   click: vi.fn(() => cleanupSpies.click),
@@ -19,7 +24,7 @@ const trackerSpies = {
 }
 
 vi.mock('./batch.js', () => ({
-  createBatchedTransport: vi.fn(() => ({ destroy: vi.fn() })),
+  createBatchedTransport: vi.fn(() => transportSpies),
 }))
 
 vi.mock('./events/page_view.js', () => ({
@@ -47,7 +52,7 @@ vi.mock('./session.js', () => ({
   configureSession: vi.fn(),
   destroySession: vi.fn(),
   resetIdentity: vi.fn(),
-  resolveSessionId: vi.fn(() => 'session-id'),
+  resolveSessionId: vi.fn(() => '01234567-0123-7123-8123-012345678901'),
 }))
 
 vi.mock('./profile.js', () => ({
@@ -62,20 +67,31 @@ vi.mock('./profile.js', () => ({
 
 vi.mock('./parsers.js', () => ({
   initUserAgentData: vi.fn(),
+  parseUserAgentData: vi.fn(() => ({})),
+  parseUtmParams: vi.fn(() => ({})),
 }))
 
 const importPug = async () => import('./pug.js')
 
 beforeEach(() => {
+  vi.restoreAllMocks()
   vi.clearAllMocks()
+  trackerSpies.pageView.mockImplementation(() => cleanupSpies.pageView)
+  trackerSpies.click.mockImplementation(() => cleanupSpies.click)
+  trackerSpies.scroll.mockImplementation(() => cleanupSpies.scroll)
+  trackerSpies.form.mockImplementation(() => cleanupSpies.form)
+  trackerSpies.rageClick.mockImplementation(() => cleanupSpies.rageClick)
+  trackerSpies.deadClick.mockImplementation(() => cleanupSpies.deadClick)
+  transportSpies.send.mockImplementation(() => Promise.resolve())
 })
 
 afterEach(async () => {
   const { destroy } = await importPug()
   destroy()
+  vi.restoreAllMocks()
 })
 
-describe('init autoTrack', () => {
+describe('init autoCapture', () => {
   it('initializes all trackers by default', async () => {
     const { init } = await importPug()
 
@@ -94,7 +110,7 @@ describe('init autoTrack', () => {
 
     init('project-id', {
       apiKey: 'api-key',
-      autoTrack: { pageView: true, click: true, scroll: false },
+      autoCapture: { pageView: true, click: true, scroll: false },
     })
 
     expect(trackerSpies.pageView).toHaveBeenCalledOnce()
@@ -118,7 +134,7 @@ describe('init autoTrack', () => {
 
     init('project-id', {
       apiKey: 'api-key',
-      autoTrack: { scroll: true },
+      autoCapture: { scroll: true },
     })
 
     expect(trackerSpies.pageView).not.toHaveBeenCalled()
@@ -129,25 +145,137 @@ describe('init autoTrack', () => {
     expect(trackerSpies.deadClick).not.toHaveBeenCalled()
   })
 
-  it('disables all trackers when autoTrack is false', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  it('disables all trackers when autoCapture is false', async () => {
     const { init } = await importPug()
 
-    init('project-id', { apiKey: 'api-key', autoTrack: false })
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
 
     expect(trackerSpies.pageView).not.toHaveBeenCalled()
     expect(trackerSpies.click).not.toHaveBeenCalled()
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('autoTrack disabled'))
   })
 
-  it('defaults to all trackers for invalid autoTrack shapes', async () => {
+  it('defaults to all trackers for invalid autoCapture shapes', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { init } = await importPug()
 
-    init('project-id', { apiKey: 'api-key', autoTrack: 'yes' as never })
+    init('project-id', { apiKey: 'api-key', autoCapture: 'yes' as never })
 
     expect(trackerSpies.pageView).toHaveBeenCalledOnce()
     expect(trackerSpies.click).toHaveBeenCalledOnce()
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('autoTrack must be a boolean or object'))
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('autoCapture must be a boolean or object'))
+  })
+
+  it('warns and ignores unknown and invalid autoCapture object values', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { init } = await importPug()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: { click: 'yes' as never, scroll: true, madeUp: true } as never,
+    })
+
+    expect(trackerSpies.click).not.toHaveBeenCalled()
+    expect(trackerSpies.scroll).toHaveBeenCalledOnce()
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown autoCapture keys: madeUp'))
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('autoCapture values must be boolean for keys: click'))
+  })
+
+  it('supports deprecated autoTrack as an alias', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoTrack: { click: true } })
+
+    expect(trackerSpies.click).toHaveBeenCalledOnce()
+    expect(trackerSpies.pageView).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('autoTrack is deprecated'))
+  })
+
+  it('prefers autoCapture when both autoCapture and deprecated autoTrack are provided', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { init } = await importPug()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: { scroll: true },
+      autoTrack: { click: true },
+    })
+
+    expect(trackerSpies.scroll).toHaveBeenCalledOnce()
+    expect(trackerSpies.click).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Both autoCapture and deprecated autoTrack'))
+  })
+})
+
+describe('runtime autoCapture', () => {
+  it('enables and disables trackers after init', async () => {
+    const { init, setAutoCapture } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+    setAutoCapture({ click: true, form: true })
+
+    expect(trackerSpies.click).toHaveBeenCalledOnce()
+    expect(trackerSpies.form).toHaveBeenCalledOnce()
+
+    setAutoCapture({ form: true })
+
+    expect(cleanupSpies.click).toHaveBeenCalledOnce()
+    expect(cleanupSpies.form).not.toHaveBeenCalled()
+  })
+})
+
+describe('tracking consent', () => {
+  it('starts opted in by default', async () => {
+    const { hasOptedInTracking, init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+
+    expect(hasOptedInTracking()).toBe(true)
+  })
+
+  it('can start opted out by default', async () => {
+    const { getTrackingConsentStatus, hasOptedInTracking, init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, optOutTrackingByDefault: true })
+
+    expect(hasOptedInTracking()).toBe(false)
+    expect(getTrackingConsentStatus()).toBe('denied')
+  })
+
+  it('drops manual track calls while opted out', async () => {
+    const { init, track } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, optOutTrackingByDefault: true })
+    track('signup', { plan: 'pro' })
+
+    expect(transportSpies.send).not.toHaveBeenCalled()
+  })
+
+  it('resumes manual track calls after opt in', async () => {
+    const { init, optInTracking, track } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, optOutTrackingByDefault: true })
+    optInTracking()
+    track('signup', { plan: 'pro' })
+
+    expect(transportSpies.send).toHaveBeenCalledOnce()
+  })
+
+  it('drops identify calls while opted out', async () => {
+    const { identify, init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, optOutTrackingByDefault: true })
+
+    await expect(identify('user-1')).resolves.toBeUndefined()
+  })
+
+  it('runtime opt out blocks later track calls', async () => {
+    const { init, optOutTracking, track } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+    optOutTracking()
+    track('signup', { plan: 'pro' })
+
+    expect(transportSpies.send).not.toHaveBeenCalled()
   })
 })

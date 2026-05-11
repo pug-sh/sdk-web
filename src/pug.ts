@@ -3,12 +3,13 @@ import { create } from '@bufbuild/protobuf'
 import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
 import { createApiTransport } from './api-transport.js'
+import {
+  type AutoCaptureController,
+  type AutoCaptureOptions,
+  type AutoCaptureSelection,
+  createAutoCaptureController,
+} from './auto-capture.js'
 import { type BatchConfig, createBatchedTransport } from './batch.js'
-import { setupClickTracking } from './events/click.js'
-import { setupFormTracking } from './events/form.js'
-import { setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
-import { setupPageViewTracking } from './events/page_view.js'
-import { setupScrollTracking } from './events/scroll.js'
 import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
 import {
@@ -22,6 +23,11 @@ import {
 } from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
 import { type JsonValue, type TrackFn, type TrackOptions, toEvent } from './track.js'
+import {
+  createTrackingConsent,
+  type TrackingConsentController,
+  type TrackingConsentStatus,
+} from './tracking-consent.js'
 import { DEVICE_ID_KEY } from './utils.js'
 
 export interface PugConfig {
@@ -36,68 +42,44 @@ export interface InitOptions {
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
   readonly session?: SessionConfig
-  readonly autoTrack?: AutoTrackOptions
+  readonly autoCapture?: AutoCaptureOptions
+  /** @deprecated Use autoCapture. */
+  readonly autoTrack?: AutoCaptureOptions
+  readonly optOutTrackingByDefault?: boolean
 }
 
-export interface AutoTrackSelection {
-  readonly pageView?: boolean
-  readonly click?: boolean
-  readonly scroll?: boolean
-  readonly form?: boolean
-  readonly rageClick?: boolean
-  readonly deadClick?: boolean
-}
+export type { AutoCaptureOptions, AutoCaptureSelection, TrackingConsentStatus }
 
-export type AutoTrackOptions = boolean | AutoTrackSelection
-
-type AutoTrackKey = keyof AutoTrackSelection
+/** @deprecated Use AutoCaptureSelection. */
+export type AutoTrackSelection = AutoCaptureSelection
+/** @deprecated Use AutoCaptureOptions. */
+export type AutoTrackOptions = AutoCaptureOptions
 
 interface PugState {
   readonly config: PugConfig
   readonly transport: ReturnType<typeof createBatchedTransport>
   readonly apiKey: string
   readonly dryRun: boolean
+  readonly autoCapture: AutoCaptureController
+  readonly trackingConsent: TrackingConsentController
 }
 
 const validator = createValidator()
 
 let state: PugState | null = null
-let cleanups: { name: string; fn: () => void }[] = []
 
-const trackers = {
-  pageView: setupPageViewTracking,
-  click: setupClickTracking,
-  scroll: setupScrollTracking,
-  form: setupFormTracking,
-  rageClick: setupRageClickTracking,
-  deadClick: setupDeadClickTracking,
-} satisfies Record<AutoTrackKey, (track: TrackFn) => () => void>
-
-const trackerKeys = Object.keys(trackers) as AutoTrackKey[]
-
-const normalizeAutoTrack = (autoTrack: InitOptions['autoTrack']): AutoTrackKey[] => {
-  if (autoTrack === undefined || autoTrack === true) {
-    return trackerKeys
+const resolveInitialAutoCapture = (options: InitOptions): AutoCaptureOptions | undefined => {
+  if (options.autoCapture !== undefined) {
+    if (options.autoTrack !== undefined) {
+      log.warn('Both autoCapture and deprecated autoTrack were provided. Using autoCapture.')
+    }
+    return options.autoCapture
   }
-  if (autoTrack === false) {
-    return []
+  if (options.autoTrack !== undefined) {
+    log.warn('autoTrack is deprecated. Use autoCapture instead.')
+    return options.autoTrack
   }
-  if (typeof autoTrack !== 'object' || autoTrack === null || Array.isArray(autoTrack)) {
-    log.warn(`autoTrack must be a boolean or object, got ${typeof autoTrack}. Defaulting to all trackers.`)
-    return trackerKeys
-  }
-
-  const unknownKeys = Object.keys(autoTrack).filter((key): key is string => !trackerKeys.includes(key as AutoTrackKey))
-  if (unknownKeys.length > 0) {
-    log.warn(`Unknown autoTrack keys: ${unknownKeys.join(', ')}. Supported keys: ${trackerKeys.join(', ')}`)
-  }
-
-  const invalidKeys = trackerKeys.filter(key => autoTrack[key] !== undefined && typeof autoTrack[key] !== 'boolean')
-  if (invalidKeys.length > 0) {
-    log.warn(`autoTrack values must be boolean for keys: ${invalidKeys.join(', ')}. Ignoring invalid values.`)
-  }
-
-  return trackerKeys.filter(key => autoTrack[key] === true)
+  return undefined
 }
 
 type ProfilesClient = ReturnType<typeof createClient<typeof ProfilesSDKService>>
@@ -145,8 +127,6 @@ export const init = (projectId: string, options: InitOptions) => {
 
   const config: PugConfig = { endpoint: options.endpoint || 'https://polrotifications.circlejerk.in', projectId }
 
-  cleanups = []
-
   try {
     configureSession(projectId, options.session)
   } catch (err) {
@@ -166,37 +146,68 @@ export const init = (projectId: string, options: InitOptions) => {
   }
 
   const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
+  const trackingConsent = createTrackingConsent(options.optOutTrackingByDefault ?? false)
+  const autoCapture = createAutoCaptureController(track)
 
-  state = { config, transport, apiKey: options.apiKey, dryRun: options.dryRun ?? false }
+  state = {
+    config,
+    transport,
+    apiKey: options.apiKey,
+    dryRun: options.dryRun ?? false,
+    autoCapture,
+    trackingConsent,
+  }
 
   if (state.dryRun) {
     log.warn('Dry run mode enabled — events will not be sent.')
   }
-
-  const enabledTrackers = normalizeAutoTrack(options.autoTrack)
-
-  if (enabledTrackers.length === 0) {
-    log.warn('Initialized (autoTrack disabled — no trackers).')
-    return
+  if (!state.trackingConsent.hasOptedIn()) {
+    log.debug('Tracking is opted out by default.')
   }
 
-  let failedCount = 0
-  for (const key of enabledTrackers) {
-    const setup = trackers[key]
-    try {
-      const cleanup = setup(track)
-      cleanups.push({ name: setup.name, fn: cleanup })
-    } catch (err) {
-      failedCount++
-      log.error(`Failed to initialize tracker "${setup.name}":`, err)
-    }
-  }
-  if (failedCount > 0) {
-    log.warn(`${failedCount}/${enabledTrackers.length} trackers failed to initialize.`)
-  }
+  state.autoCapture.set(resolveInitialAutoCapture(options))
 
   log.debug('Initialized.')
 }
+
+export const setAutoCapture = (autoCapture: AutoCaptureOptions): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (!state) {
+    log.warn('setAutoCapture() called before init().')
+    return
+  }
+  state.autoCapture.set(autoCapture)
+}
+
+export const optInTracking = (): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (!state) {
+    log.warn('optInTracking() called before init().')
+    return
+  }
+  state.trackingConsent.optIn()
+  log.debug('Tracking opted in.')
+}
+
+export const optOutTracking = (): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (!state) {
+    log.warn('optOutTracking() called before init().')
+    return
+  }
+  state.trackingConsent.optOut()
+  log.debug('Tracking opted out.')
+}
+
+export const hasOptedInTracking = (): boolean => state?.trackingConsent.hasOptedIn() ?? false
+
+export const getTrackingConsentStatus = (): TrackingConsentStatus => state?.trackingConsent.getStatus() ?? 'denied'
 
 export const destroy = () => {
   if (typeof window === 'undefined') {
@@ -208,13 +219,7 @@ export const destroy = () => {
     return
   }
 
-  for (const cleanup of cleanups) {
-    try {
-      cleanup.fn()
-    } catch (err) {
-      log.error(`Error during cleanup of "${cleanup.name}":`, err)
-    }
-  }
+  state.autoCapture.destroy()
 
   try {
     state.transport.destroy()
@@ -226,7 +231,6 @@ export const destroy = () => {
   destroyProfile()
   profilesClient = null
 
-  cleanups = []
   state = null
 }
 
@@ -267,6 +271,10 @@ export const identify = async (externalId: string, traits?: Record<string, JsonV
   }
   if (!externalId || typeof externalId !== 'string') {
     throw new Error('[Pug SDK] identify() requires a non-empty externalId string')
+  }
+  if (!state.trackingConsent.hasOptedIn()) {
+    log.debug('identify() dropped because tracking is opted out.')
+    return
   }
   if (state.dryRun) {
     log.debug('dryRun: would identify')
@@ -319,6 +327,11 @@ export const track: TrackFn = (kind: string, props?: Record<string, unknown>, op
 
     if (!state) {
       log.warn('track() called before init().')
+      return
+    }
+
+    if (!state.trackingConsent.hasOptedIn()) {
+      log.debug(`track("${kind}") dropped because tracking is opted out.`)
       return
     }
 

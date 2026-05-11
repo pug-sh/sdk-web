@@ -28,7 +28,15 @@ bun run test:watch     # Run tests in watch mode (vitest)
 
 ### Core (`src/pug.ts`)
 
-`pug.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, `identify(externalId, traits?)`, `reset()`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport, apiKey, dryRun } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport), resolves `options.autoTrack`, and iterates over the enabled tracker setup functions with each wrapped in try/catch for isolation. `autoTrack` supports `true`/`false` or an `AutoTrackSelection` object; object mode is an allowlist, so only keys set to `true` are enabled and omitted keys stay off. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` calls `resolveSessionId()` from `session.ts` on every event, uses `toEvent()` from `track.ts` to build a protobuf `Event`, and sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, `destroySession()`, `destroyProfile()`, nulls the profiles client, and resets state to allow re-initialization.
+`pug.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, `identify(externalId, traits?)`, `reset()`, `destroy()`, `setAutoCapture(selection)`, `optInTracking()`, `optOutTracking()`, `hasOptedInTracking()`, and `getTrackingConsentStatus()`. A single nullable module-scoped `state` object (`{ config, transport, apiKey, dryRun, autoCapture, trackingConsent } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport), resolves `options.autoCapture` (or deprecated `options.autoTrack`), creates the auto-capture and tracking-consent controllers, and applies the initial auto-capture selection. `optOutTrackingByDefault` starts the global tracking consent state as denied; while denied, `track()` and `identify()` drop calls at debug level and no events are queued. `track()` calls `resolveSessionId()` from `session.ts` on every allowed event, uses `toEvent()` from `track.ts` to build a protobuf `Event`, and sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes active tracker cleanup functions through the auto-capture controller, calls `transport.destroy()`, `destroySession()`, `destroyProfile()`, nulls the profiles client, and resets state to allow re-initialization.
+
+### Auto-Capture (`src/auto-capture.ts`)
+
+Owns SDK automatic listener selection and lifecycle. `autoCapture` supports `true`/`false` or an `AutoCaptureSelection` object; object mode is an allowlist, so only keys set to `true` are enabled and omitted keys stay off. Runtime tracker cleanup is owned per tracker in a controller-local `Map`, allowing `setAutoCapture()` to add/remove SDK-owned listeners after init without bloating `pug.ts`.
+
+### Tracking Consent (`src/tracking-consent.ts`)
+
+Owns the in-memory consent state (`'granted' | 'denied'`). It is intentionally not persisted yet; callers that need consent across reloads should pass `optOutTrackingByDefault` according to their own consent storage on each `init()`.
 
 ### Parsers (`src/parsers.ts`)
 
@@ -58,7 +66,7 @@ Module-level state, no classes. Manages anonymous profile IDs persisted to `loca
 - `clearProfile()` — clears storage (both anonymous ID and external ID) and resets identified state. Called by `pug.reset()`.
 - `destroyProfile()` — clears profile and resets all module state. Called by `pug.destroy()`.
 
-`identify(externalId, traits?)` in `pug.ts` sends the `ProfilesSDKService.Identify` RPC. On the first call, it includes `anonymousId` so the server merges the anonymous profile into the identified one. Subsequent calls send an empty `anonymousId` (trait-only updates). The profiles RPC client is lazy-created on first `identify()` call. Respects `dryRun` mode.
+`identify(externalId, traits?)` in `pug.ts` sends the `ProfilesSDKService.Identify` RPC. On the first call, it includes `anonymousId` so the server merges the anonymous profile into the identified one. Subsequent calls send an empty `anonymousId` (trait-only updates). The profiles RPC client is lazy-created on first allowed `identify()` call. Respects tracking consent and `dryRun` mode.
 
 ### Well-Known Events (`src/well-known-events.ts` + `src/well-known-events.generated.ts`)
 
@@ -100,7 +108,7 @@ The queue storage implementations share a common shape with a two-phase lock/com
 
 Each tracker module exports a `setup*Tracking(track: TrackFn)` function that returns a cleanup function. They are called during `init()`, each wrapped in try/catch to isolate failures:
 
-`autoTrack` maps to these tracker modules by key: `pageView`, `click`, `scroll`, `form`, `rageClick`, and `deadClick`.
+`autoCapture` maps to these tracker modules by key: `pageView`, `click`, `scroll`, `form`, `rageClick`, and `deadClick`. Deprecated `autoTrack` is accepted as an alias at init only.
 
 | Module           | Events                      | Notes                                                                                                                                                                                                                                                                                                        |
 | ---------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -143,4 +151,4 @@ Push is an optional, tree-shakeable module — `pug.ts` never imports it, so non
 - Target/module: ES2020, strict mode, declarations emitted to `dist/`
 - Imports within `src/` use `.js` extensions (required for ES module resolution at runtime)
 - Module resolution: `bundler`
-- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track`, `reset`, `identify`, `rotate` and types `PugConfig`, `InitOptions`, `AutoTrackSelection`, `AutoTrackOptions`, `BatchConfig`, `TrackOptions`, `SessionConfig`, `JsonValue`, `JsonObject`, `TrackFn`, `WellKnownEventName`, `WellKnownEventPropsMap`; and from `push.ts`: `subscribePush`, `unsubscribePush`, `setupNotificationClickTracking`, `PushOptions`. `JsonValue` and `JsonObject` are re-exported from `@bufbuild/protobuf`. Deprecated alias `PugEventName` (→ `WellKnownEventName`) is re-exported for backward compatibility. Internal module functions and implementation details are not publicly exported.
+- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track`, `reset`, `identify`, `setAutoCapture`, `optInTracking`, `optOutTracking`, `hasOptedInTracking`, `getTrackingConsentStatus`, `rotate` and types `PugConfig`, `InitOptions`, `AutoCaptureSelection`, `AutoCaptureOptions`, `TrackingConsentStatus`, deprecated aliases `AutoTrackSelection`, `AutoTrackOptions`, `BatchConfig`, `TrackOptions`, `SessionConfig`, `JsonValue`, `JsonObject`, `TrackFn`, `WellKnownEventName`, `WellKnownEventPropsMap`; and from `push.ts`: `subscribePush`, `unsubscribePush`, `setupNotificationClickTracking`, `PushOptions`. `JsonValue` and `JsonObject` are re-exported from `@bufbuild/protobuf`. Deprecated alias `PugEventName` (→ `WellKnownEventName`) is re-exported for backward compatibility. Internal module functions and implementation details are not publicly exported.

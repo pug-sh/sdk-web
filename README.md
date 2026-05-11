@@ -35,17 +35,37 @@ destroy()
 
 All standard events (page views, clicks, scrolls, forms, rage clicks, dead clicks) are captured automatically after `init()`.
 
-To selectively enable only some auto-captured events:
+To selectively enable only some automatically captured events, use `autoCapture`. Object mode is an allowlist: omitted keys are disabled.
 
 ```ts
 init('your-project-id', {
   apiKey: 'your-api-key',
-  autoTrack: {
+  autoCapture: {
     pageView: true,
     click: true,
     scroll: false,
   },
 })
+```
+
+For consent-first flows, start with tracking opted out. While opted out, automatic events, manual `track()`, and `identify()` are dropped. Events are not queued for later replay.
+
+```ts
+import { init, optInTracking, optOutTracking, setAutoCapture } from 'pug-web'
+
+init('your-project-id', {
+  apiKey: 'your-api-key',
+  optOutTrackingByDefault: true,
+  autoCapture: false,
+})
+
+// After consent is granted:
+optInTracking()
+setAutoCapture({ pageView: true, click: true })
+
+// If consent is revoked:
+optOutTracking()
+setAutoCapture(false)
 ```
 
 ### Init options
@@ -56,7 +76,19 @@ init('your-project-id', {
 | `endpoint` | `string` | `http://localhost:8080` | Backend base URL. |
 | `samplingRate` | `number` | `1` | Fraction of sessions to track (0–1). |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
-| `autoTrack` | `boolean \| AutoTrackSelection` | `true` | `false` disables all auto-capture; an object enables only the keys set to `true`. |
+| `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object enables only keys set to `true`. |
+| `autoTrack` | `boolean \| AutoCaptureSelection` | — | Deprecated alias for `autoCapture`. |
+| `optOutTrackingByDefault` | `boolean` | `false` | Starts global tracking consent as denied. While denied, `track()` and `identify()` are ignored. |
+
+### Tracking consent API
+
+| Function | Description |
+|---|---|
+| `optInTracking()` | Allows future automatic events, manual `track()`, and `identify()` calls to send. |
+| `optOutTracking()` | Drops future automatic events, manual `track()`, and `identify()` calls. Does not remove automatic listeners by itself. |
+| `hasOptedInTracking()` | Returns `true` when the current SDK instance can send tracking calls. |
+| `getTrackingConsentStatus()` | Returns `'granted'` or `'denied'`. |
+| `setAutoCapture(selection)` | Adds or removes SDK-owned automatic listeners at runtime. This does not override tracking consent. |
 
 ### API
 
@@ -224,8 +256,8 @@ const handleEnablePush = async () => {
 
   await subscribePush('BExampleVAPIDPublicKeyBase64url...', {
     endpoint: 'https://your-backend.example.com', // same as init()
-    token: 'your-api-key',                        // same as init()
-    swPath: '/pug_sw.js',                      // optional, defaults to /pug_sw.js
+    apiKey: 'your-api-key',                       // same as init()
+    swPath: '/pug_sw.js',                         // optional, defaults to /pug_sw.js
     profileId: 'user-uuid',                       // optional, links push device to a known profile
     profileExternalId: 'user@example.com',        // optional
   })
@@ -235,7 +267,7 @@ const handleEnablePush = async () => {
 | Option | Type | Description |
 |---|---|---|
 | `endpoint` | `string` | **Required.** Backend base URL (same value passed to `init()`). |
-| `token` | `string` | **Required.** API key (same value passed to `init()`). |
+| `apiKey` | `string` | **Required.** API key (same value passed to `init()`). |
 | `swPath` | `string` | Path to the service worker file. Defaults to `/pug_sw.js`. |
 | `profileId` | `string` | Pug profile UUID to associate with this device. |
 | `profileExternalId` | `string` | External identifier (e.g. email) to associate with this device. |
@@ -253,7 +285,7 @@ Call it once after `init()`. It returns a cleanup function — pass it to `destr
 import { init, track, destroy } from 'pug-web'
 import { setupNotificationClickTracking } from 'pug-web'
 
-init('your-project-id', { token: 'your-api-key' })
+init('your-project-id', { apiKey: 'your-api-key' })
 
 const cleanupPushTracking = setupNotificationClickTracking(track)
 
