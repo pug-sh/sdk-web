@@ -94,7 +94,7 @@ export const init = (projectId: string, options: InitOptions) => {
   // TODO(sampling): implement session-level sampling — either hash a device/user ID
   // for deterministic sampling or use a random per-session coin flip.
 
-  const config: PugConfig = { endpoint: options.endpoint || 'http://localhost:8080', projectId }
+  const config: PugConfig = { endpoint: options.endpoint || 'https://polrotifications.circlejerk.in', projectId }
 
   cleanups = []
 
