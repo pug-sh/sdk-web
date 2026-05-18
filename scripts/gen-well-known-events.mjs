@@ -1,6 +1,6 @@
 import { getExtension } from '@bufbuild/protobuf'
 import { kind, platforms, Platform } from '@buf/fivebits_pug.bufbuild_es/common/events/v1/options_pb.js'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -10,28 +10,16 @@ import { fileURLToPath } from 'node:url'
 const SDK_PLATFORM = Platform.WEB
 const isForThisPlatform = plats => !plats || plats.length === 0 || plats.includes(SDK_PLATFORM)
 
-const EVENT_MODULES = [
-  'api_events',
-  'app_events',
-  'auth_events',
-  'billing_events',
-  'chat_events',
-  'commerce_events',
-  'discovery_events',
-  'error_events',
-  'file_events',
-  'form_events',
-  'integration_events',
-  'invitation_events',
-  'media_events',
-  'navigation_events',
-  'notification_events',
-  'social_events',
-  'support_events',
-  'workspace_events',
-]
-
 const PACKAGE_PATH = '@buf/fivebits_pug.bufbuild_es/common/events/v1'
+
+// Discover event modules by listing the directory the options module resolves to.
+// Any new *_events.proto upstream is picked up automatically; options_pb.js is excluded
+// by the suffix filter.
+const eventsDir = dirname(fileURLToPath(import.meta.resolve(`${PACKAGE_PATH}/options_pb.js`)))
+const EVENT_MODULES = readdirSync(eventsDir)
+  .filter(f => f.endsWith('_events_pb.js'))
+  .map(f => f.replace(/_pb\.js$/, ''))
+  .sort()
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '..')
