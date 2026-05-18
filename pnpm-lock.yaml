@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@buf/fivebits_pug.bufbuild_es':
-        specifier: 2.12.0-20260516184605-146359367ea1.1
-        version: 2.12.0-20260516184605-146359367ea1.1(@bufbuild/protobuf@2.12.0)
+        specifier: 2.12.0-20260518042244-ebf4ed7507a6.1
+        version: 2.12.0-20260518042244-ebf4ed7507a6.1(@bufbuild/protobuf@2.12.0)
       '@bufbuild/protobuf':
         specifier: ^2.12.0
         version: 2.12.0
@@ -122,8 +122,8 @@ packages:
     peerDependencies:
       '@bufbuild/protobuf': ^2.12.0
 
-  '@buf/fivebits_pug.bufbuild_es@2.12.0-20260516184605-146359367ea1.1':
-    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/fivebits_pug.bufbuild_es/-/fivebits_pug.bufbuild_es-2.12.0-20260516184605-146359367ea1.1.tgz}
+  '@buf/fivebits_pug.bufbuild_es@2.12.0-20260518042244-ebf4ed7507a6.1':
+    resolution: {tarball: https://buf.build/gen/npm/v1/@buf/fivebits_pug.bufbuild_es/-/fivebits_pug.bufbuild_es-2.12.0-20260518042244-ebf4ed7507a6.1.tgz}
     peerDependencies:
       '@bufbuild/protobuf': ^2.12.0
 
@@ -1113,7 +1113,7 @@ snapshots:
     dependencies:
       '@bufbuild/protobuf': 2.12.0
 
-  '@buf/fivebits_pug.bufbuild_es@2.12.0-20260516184605-146359367ea1.1(@bufbuild/protobuf@2.12.0)':
+  '@buf/fivebits_pug.bufbuild_es@2.12.0-20260518042244-ebf4ed7507a6.1(@bufbuild/protobuf@2.12.0)':
     dependencies:
       '@buf/bufbuild_protovalidate.bufbuild_es': 2.12.0-20251209175733-2a1774d88802.1(@bufbuild/protobuf@2.12.0)
       '@bufbuild/protobuf': 2.12.0

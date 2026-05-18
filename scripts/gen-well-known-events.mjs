@@ -1,8 +1,8 @@
-import { getExtension } from '@bufbuild/protobuf'
-import { kind, platforms, Platform } from '@buf/fivebits_pug.bufbuild_es/common/events/v1/options_pb.js'
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { kind, Platform, platforms } from '@buf/fivebits_pug.bufbuild_es/common/events/v1/options_pb.js'
+import { getExtension } from '@bufbuild/protobuf'
 
 // Filter policy: include events whose `(common.events.v1.platforms)` option contains
 // PLATFORM_WEB, OR is unset (platform-neutral). Events tagged only with non-WEB
