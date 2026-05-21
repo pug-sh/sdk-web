@@ -43,7 +43,10 @@ export const parseUserAgentData = (): UserAgentProps => {
 
     const result: UserAgentProps = {}
 
-    const brand = uad.brands?.find(b => !b.brand.startsWith('Not'))
+    const brand = uad.brands
+      ?.slice()
+      .reverse()
+      .find(b => !b.brand.toLowerCase().startsWith('not'))
     if (brand) {
       result.$browser = brand.brand
       result.$browserVersion = brand.version
