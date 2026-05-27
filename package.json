@@ -1,6 +1,6 @@
 {
   "name": "@poluruprvn/pug-web",
-  "version": "0.0.1",
+  "version": "0.0.8",
   "description": "Pug Web SDK for event tracking",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,7 +16,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@buf/fivebits_pug.bufbuild_es": "2.12.0-20260518104940-7cfc94507726.1",
+    "@buf/fivebits_pug.bufbuild_es": "2.12.0-20260527170440-61feed52218d.1",
     "@bufbuild/protobuf": "^2.12.0",
     "@bufbuild/protovalidate": "^1.1.1",
     "@connectrpc/connect": "^2.1.1",
