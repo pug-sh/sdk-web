@@ -1,2 +1,0 @@
-minimumReleaseAgeExclude:
-  - '@buf/fivebits_pug.bufbuild_es@2.12.0-20260527170440-61feed52218d.1'
