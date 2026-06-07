@@ -29,7 +29,7 @@
     "sdk"
   ],
   "author": "Pug",
-  "license": "ISC",
+  "license": "AGPL-3.0-or-later",
   "devDependencies": {
     "@biomejs/biome": "2.4.14",
     "jsdom": "^29.0.1",
