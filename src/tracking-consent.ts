@@ -1,11 +1,11 @@
-export type TrackingConsentStatus = 'granted' | 'denied'
+export type TrackingConsent = 'granted' | 'denied'
 
-export const createTrackingConsent = (optedOutByDefault: boolean) => {
-  let status: TrackingConsentStatus = optedOutByDefault ? 'denied' : 'granted'
+export const createTrackingConsent = (defaultConsent: TrackingConsent = 'granted') => {
+  let status: TrackingConsent = defaultConsent
 
   return {
-    getStatus: (): TrackingConsentStatus => status,
-    hasOptedIn: (): boolean => status === 'granted',
+    getConsent: (): TrackingConsent => status,
+    isGranted: (): boolean => status === 'granted',
     optIn: (): void => {
       status = 'granted'
     },

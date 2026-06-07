@@ -15,7 +15,7 @@ export interface AutoCaptureSelection {
   readonly deadClick?: boolean
 }
 
-export type AutoCaptureOptions = boolean | AutoCaptureSelection
+export type AutoCaptureConfig = boolean | AutoCaptureSelection
 
 type AutoCaptureKey = keyof AutoCaptureSelection
 
@@ -30,7 +30,7 @@ const trackers = {
 
 const trackerKeys = Object.keys(trackers) as AutoCaptureKey[]
 
-const normalizeAutoCapture = (autoCapture: AutoCaptureOptions | undefined): AutoCaptureKey[] => {
+const normalizeAutoCapture = (autoCapture: AutoCaptureConfig | undefined): AutoCaptureKey[] => {
   if (autoCapture === undefined || autoCapture === true) {
     return trackerKeys
   }
@@ -73,20 +73,22 @@ export const createAutoCaptureController = (track: TrackFn) => {
     cleanups.delete(key)
   }
 
-  const enable = (key: AutoCaptureKey): void => {
+  const enable = (key: AutoCaptureKey): boolean => {
     if (cleanups.has(key)) {
-      return
+      return true
     }
     const setup = trackers[key]
     try {
       const cleanup = setup(track)
       cleanups.set(key, { name: setup.name, fn: cleanup })
+      return true
     } catch (err) {
       log.error(`Failed to initialize tracker "${setup.name}":`, err)
+      return false
     }
   }
 
-  const set = (autoCapture: AutoCaptureOptions | undefined): void => {
+  const set = (autoCapture: AutoCaptureConfig | undefined): void => {
     const enabledTrackers = new Set(normalizeAutoCapture(autoCapture))
 
     for (const key of trackerKeys) {
@@ -95,8 +97,15 @@ export const createAutoCaptureController = (track: TrackFn) => {
       }
     }
 
+    let failedCount = 0
     for (const key of enabledTrackers) {
-      enable(key)
+      if (!enable(key)) {
+        failedCount++
+      }
+    }
+
+    if (failedCount > 0) {
+      log.warn(`${failedCount}/${enabledTrackers.size} trackers failed to initialize.`)
     }
 
     if (enabledTrackers.size === 0) {

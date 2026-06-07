@@ -4,8 +4,8 @@ import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
 import { createApiTransport } from './api-transport.js'
 import {
+  type AutoCaptureConfig,
   type AutoCaptureController,
-  type AutoCaptureOptions,
   type AutoCaptureSelection,
   createAutoCaptureController,
 } from './auto-capture.js'
@@ -23,11 +23,7 @@ import {
 } from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
 import { type JsonValue, type TrackFn, type TrackOptions, toEvent } from './track.js'
-import {
-  createTrackingConsent,
-  type TrackingConsentController,
-  type TrackingConsentStatus,
-} from './tracking-consent.js'
+import { createTrackingConsent, type TrackingConsent, type TrackingConsentController } from './tracking-consent.js'
 import { DEVICE_ID_KEY } from './utils.js'
 
 export interface PugConfig {
@@ -42,18 +38,11 @@ export interface InitOptions {
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
   readonly session?: SessionConfig
-  readonly autoCapture?: AutoCaptureOptions
-  /** @deprecated Use autoCapture. */
-  readonly autoTrack?: AutoCaptureOptions
-  readonly optOutTrackingByDefault?: boolean
+  readonly autoCapture?: AutoCaptureConfig
+  readonly defaultTrackingConsent?: TrackingConsent
 }
 
-export type { AutoCaptureOptions, AutoCaptureSelection, TrackingConsentStatus }
-
-/** @deprecated Use AutoCaptureSelection. */
-export type AutoTrackSelection = AutoCaptureSelection
-/** @deprecated Use AutoCaptureOptions. */
-export type AutoTrackOptions = AutoCaptureOptions
+export type { AutoCaptureConfig, AutoCaptureSelection, TrackingConsent }
 
 interface PugState {
   readonly config: PugConfig
@@ -62,24 +51,22 @@ interface PugState {
   readonly dryRun: boolean
   readonly autoCapture: AutoCaptureController
   readonly trackingConsent: TrackingConsentController
+  desiredAutoCapture: AutoCaptureConfig | undefined
 }
 
 const validator = createValidator()
 
 let state: PugState | null = null
 
-const resolveInitialAutoCapture = (options: InitOptions): AutoCaptureOptions | undefined => {
-  if (options.autoCapture !== undefined) {
-    if (options.autoTrack !== undefined) {
-      log.warn('Both autoCapture and deprecated autoTrack were provided. Using autoCapture.')
-    }
-    return options.autoCapture
+const applyDesiredAutoCapture = (): void => {
+  if (!state) {
+    return
   }
-  if (options.autoTrack !== undefined) {
-    log.warn('autoTrack is deprecated. Use autoCapture instead.')
-    return options.autoTrack
+  if (!state.trackingConsent.isGranted()) {
+    state.autoCapture.set(false)
+    return
   }
-  return undefined
+  state.autoCapture.set(state.desiredAutoCapture)
 }
 
 type ProfilesClient = ReturnType<typeof createClient<typeof ProfilesSDKService>>
@@ -146,7 +133,7 @@ export const init = (projectId: string, options: InitOptions) => {
   }
 
   const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
-  const trackingConsent = createTrackingConsent(options.optOutTrackingByDefault ?? false)
+  const trackingConsent = createTrackingConsent(options.defaultTrackingConsent ?? 'granted')
   const autoCapture = createAutoCaptureController(track)
 
   state = {
@@ -156,26 +143,33 @@ export const init = (projectId: string, options: InitOptions) => {
     dryRun: options.dryRun ?? false,
     autoCapture,
     trackingConsent,
+    desiredAutoCapture: options.autoCapture,
   }
 
   if (state.dryRun) {
     log.warn('Dry run mode enabled — events will not be sent.')
   }
-  if (!state.trackingConsent.hasOptedIn()) {
-    log.debug('Tracking is opted out by default.')
+  if (!state.trackingConsent.isGranted()) {
+    log.debug('Tracking consent is denied.')
   }
 
-  state.autoCapture.set(resolveInitialAutoCapture(options))
+  applyDesiredAutoCapture()
 
   log.debug('Initialized.')
 }
 
-export const setAutoCapture = (autoCapture: AutoCaptureOptions): void => {
+export const setAutoCapture = (autoCapture: AutoCaptureConfig): void => {
   if (typeof window === 'undefined') {
     return
   }
   if (!state) {
     log.warn('setAutoCapture() called before init().')
+    return
+  }
+  state.desiredAutoCapture = autoCapture
+  if (!state.trackingConsent.isGranted()) {
+    log.debug('setAutoCapture() stored selection; listeners activate after opt-in.')
+    state.autoCapture.set(false)
     return
   }
   state.autoCapture.set(autoCapture)
@@ -190,6 +184,7 @@ export const optInTracking = (): void => {
     return
   }
   state.trackingConsent.optIn()
+  applyDesiredAutoCapture()
   log.debug('Tracking opted in.')
 }
 
@@ -202,12 +197,25 @@ export const optOutTracking = (): void => {
     return
   }
   state.trackingConsent.optOut()
+  state.autoCapture.set(false)
   log.debug('Tracking opted out.')
 }
 
-export const hasOptedInTracking = (): boolean => state?.trackingConsent.hasOptedIn() ?? false
+export const isTrackingEnabled = (): boolean => {
+  if (!state) {
+    log.warn('isTrackingEnabled() called before init().')
+    return false
+  }
+  return state.trackingConsent.isGranted()
+}
 
-export const getTrackingConsentStatus = (): TrackingConsentStatus => state?.trackingConsent.getStatus() ?? 'denied'
+export const getTrackingConsent = (): TrackingConsent => {
+  if (!state) {
+    log.warn('getTrackingConsent() called before init().')
+    return 'denied'
+  }
+  return state.trackingConsent.getConsent()
+}
 
 export const destroy = () => {
   if (typeof window === 'undefined') {
@@ -272,8 +280,8 @@ export const identify = async (externalId: string, traits?: Record<string, JsonV
   if (!externalId || typeof externalId !== 'string') {
     throw new Error('[Pug SDK] identify() requires a non-empty externalId string')
   }
-  if (!state.trackingConsent.hasOptedIn()) {
-    log.debug('identify() dropped because tracking is opted out.')
+  if (!state.trackingConsent.isGranted()) {
+    log.debug('identify() dropped because tracking consent is denied.')
     return
   }
   if (state.dryRun) {
@@ -330,8 +338,8 @@ export const track: TrackFn = (kind: string, props?: Record<string, unknown>, op
       return
     }
 
-    if (!state.trackingConsent.hasOptedIn()) {
-      log.debug(`track("${kind}") dropped because tracking is opted out.`)
+    if (!state.trackingConsent.isGranted()) {
+      log.debug(`track("${kind}") dropped because tracking consent is denied.`)
       return
     }
 

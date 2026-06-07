@@ -1,22 +1,20 @@
 export type { JsonObject, JsonValue } from '@bufbuild/protobuf'
 export { type BatchConfig } from './batch.js'
 export {
-  type AutoCaptureOptions,
+  type AutoCaptureConfig,
   type AutoCaptureSelection,
-  type AutoTrackOptions,
-  type AutoTrackSelection,
   destroy,
-  getTrackingConsentStatus,
-  hasOptedInTracking,
+  getTrackingConsent,
   type InitOptions,
   identify,
   init,
+  isTrackingEnabled,
   optInTracking,
   optOutTracking,
   type PugConfig,
   reset,
   setAutoCapture,
-  type TrackingConsentStatus,
+  type TrackingConsent,
   track,
 } from './pug.js'
 export { type PushOptions, setupNotificationClickTracking, subscribePush, unsubscribePush } from './push.js'

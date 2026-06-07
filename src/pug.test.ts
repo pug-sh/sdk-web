@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const logSpies = {
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}
+
+vi.mock('./logger.js', () => ({
+  log: logSpies,
+}))
+
 const cleanupSpies = {
   pageView: vi.fn(),
   click: vi.fn(),
@@ -74,7 +84,6 @@ vi.mock('./parsers.js', () => ({
 const importPug = async () => import('./pug.js')
 
 beforeEach(() => {
-  vi.restoreAllMocks()
   vi.clearAllMocks()
   trackerSpies.pageView.mockImplementation(() => cleanupSpies.pageView)
   trackerSpies.click.mockImplementation(() => cleanupSpies.click)
@@ -88,7 +97,6 @@ beforeEach(() => {
 afterEach(async () => {
   const { destroy } = await importPug()
   destroy()
-  vi.restoreAllMocks()
 })
 
 describe('init autoCapture', () => {
@@ -155,18 +163,16 @@ describe('init autoCapture', () => {
   })
 
   it('defaults to all trackers for invalid autoCapture shapes', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { init } = await importPug()
 
     init('project-id', { apiKey: 'api-key', autoCapture: 'yes' as never })
 
     expect(trackerSpies.pageView).toHaveBeenCalledOnce()
     expect(trackerSpies.click).toHaveBeenCalledOnce()
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('autoCapture must be a boolean or object'))
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('autoCapture must be a boolean or object'))
   })
 
   it('warns and ignores unknown and invalid autoCapture object values', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { init } = await importPug()
 
     init('project-id', {
@@ -176,34 +182,22 @@ describe('init autoCapture', () => {
 
     expect(trackerSpies.click).not.toHaveBeenCalled()
     expect(trackerSpies.scroll).toHaveBeenCalledOnce()
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown autoCapture keys: madeUp'))
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('autoCapture values must be boolean for keys: click'))
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('Unknown autoCapture keys: madeUp'))
+    expect(logSpies.warn).toHaveBeenCalledWith(
+      expect.stringContaining('autoCapture values must be boolean for keys: click'),
+    )
   })
 
-  it('supports deprecated autoTrack as an alias', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { init } = await importPug()
-
-    init('project-id', { apiKey: 'api-key', autoTrack: { click: true } })
-
-    expect(trackerSpies.click).toHaveBeenCalledOnce()
-    expect(trackerSpies.pageView).not.toHaveBeenCalled()
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('autoTrack is deprecated'))
-  })
-
-  it('prefers autoCapture when both autoCapture and deprecated autoTrack are provided', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { init } = await importPug()
-
-    init('project-id', {
-      apiKey: 'api-key',
-      autoCapture: { scroll: true },
-      autoTrack: { click: true },
+  it('logs an aggregate warning when tracker setup fails', async () => {
+    trackerSpies.click.mockImplementation(() => {
+      throw new Error('boom')
     })
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: { click: true, scroll: true } })
 
     expect(trackerSpies.scroll).toHaveBeenCalledOnce()
-    expect(trackerSpies.click).not.toHaveBeenCalled()
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Both autoCapture and deprecated autoTrack'))
+    expect(logSpies.warn).toHaveBeenCalledWith('1/2 trackers failed to initialize.')
   })
 })
 
@@ -222,30 +216,77 @@ describe('runtime autoCapture', () => {
     expect(cleanupSpies.click).toHaveBeenCalledOnce()
     expect(cleanupSpies.form).not.toHaveBeenCalled()
   })
+
+  it('warns when setAutoCapture is called before init', async () => {
+    const { setAutoCapture } = await importPug()
+
+    setAutoCapture({ click: true })
+
+    expect(trackerSpies.click).not.toHaveBeenCalled()
+    expect(logSpies.warn).toHaveBeenCalledWith('setAutoCapture() called before init().')
+  })
+
+  it('cleans up runtime-enabled trackers on destroy', async () => {
+    const { destroy, init, setAutoCapture } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+    setAutoCapture({ click: true, form: true })
+    destroy()
+
+    expect(cleanupSpies.click).toHaveBeenCalledOnce()
+    expect(cleanupSpies.form).toHaveBeenCalledOnce()
+  })
 })
 
 describe('tracking consent', () => {
   it('starts opted in by default', async () => {
-    const { hasOptedInTracking, init } = await importPug()
+    const { init, isTrackingEnabled } = await importPug()
 
     init('project-id', { apiKey: 'api-key', autoCapture: false })
 
-    expect(hasOptedInTracking()).toBe(true)
+    expect(isTrackingEnabled()).toBe(true)
   })
 
   it('can start opted out by default', async () => {
-    const { getTrackingConsentStatus, hasOptedInTracking, init } = await importPug()
+    const { getTrackingConsent, init, isTrackingEnabled } = await importPug()
 
-    init('project-id', { apiKey: 'api-key', autoCapture: false, optOutTrackingByDefault: true })
+    init('project-id', { apiKey: 'api-key', autoCapture: false, defaultTrackingConsent: 'denied' })
 
-    expect(hasOptedInTracking()).toBe(false)
-    expect(getTrackingConsentStatus()).toBe('denied')
+    expect(isTrackingEnabled()).toBe(false)
+    expect(getTrackingConsent()).toBe('denied')
+  })
+
+  it('does not attach auto-capture listeners while opted out', async () => {
+    const { init } = await importPug()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      defaultTrackingConsent: 'denied',
+      autoCapture: { pageView: true, click: true },
+    })
+
+    expect(trackerSpies.pageView).not.toHaveBeenCalled()
+    expect(trackerSpies.click).not.toHaveBeenCalled()
+  })
+
+  it('defers setAutoCapture until opt in while opted out', async () => {
+    const { init, optInTracking, setAutoCapture } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', defaultTrackingConsent: 'denied', autoCapture: false })
+    setAutoCapture({ click: true })
+
+    expect(trackerSpies.click).not.toHaveBeenCalled()
+    expect(logSpies.debug).toHaveBeenCalledWith('setAutoCapture() stored selection; listeners activate after opt-in.')
+
+    optInTracking()
+
+    expect(trackerSpies.click).toHaveBeenCalledOnce()
   })
 
   it('drops manual track calls while opted out', async () => {
     const { init, track } = await importPug()
 
-    init('project-id', { apiKey: 'api-key', autoCapture: false, optOutTrackingByDefault: true })
+    init('project-id', { apiKey: 'api-key', autoCapture: false, defaultTrackingConsent: 'denied' })
     track('signup', { plan: 'pro' })
 
     expect(transportSpies.send).not.toHaveBeenCalled()
@@ -254,7 +295,7 @@ describe('tracking consent', () => {
   it('resumes manual track calls after opt in', async () => {
     const { init, optInTracking, track } = await importPug()
 
-    init('project-id', { apiKey: 'api-key', autoCapture: false, optOutTrackingByDefault: true })
+    init('project-id', { apiKey: 'api-key', autoCapture: false, defaultTrackingConsent: 'denied' })
     optInTracking()
     track('signup', { plan: 'pro' })
 
@@ -264,7 +305,7 @@ describe('tracking consent', () => {
   it('drops identify calls while opted out', async () => {
     const { identify, init } = await importPug()
 
-    init('project-id', { apiKey: 'api-key', autoCapture: false, optOutTrackingByDefault: true })
+    init('project-id', { apiKey: 'api-key', autoCapture: false, defaultTrackingConsent: 'denied' })
 
     await expect(identify('user-1')).resolves.toBeUndefined()
   })
@@ -277,5 +318,40 @@ describe('tracking consent', () => {
     track('signup', { plan: 'pro' })
 
     expect(transportSpies.send).not.toHaveBeenCalled()
+  })
+
+  it('opt out tears down active auto-capture listeners', async () => {
+    const { init, optOutTracking, setAutoCapture } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: { click: true } })
+    setAutoCapture({ click: true, form: true })
+    optOutTracking()
+
+    expect(cleanupSpies.click).toHaveBeenCalledOnce()
+    expect(cleanupSpies.form).toHaveBeenCalledOnce()
+  })
+
+  it('opt in restores the stored auto-capture selection', async () => {
+    const { init, optInTracking } = await importPug()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      defaultTrackingConsent: 'denied',
+      autoCapture: { scroll: true, form: true },
+    })
+    optInTracking()
+
+    expect(trackerSpies.scroll).toHaveBeenCalledOnce()
+    expect(trackerSpies.form).toHaveBeenCalledOnce()
+    expect(trackerSpies.click).not.toHaveBeenCalled()
+  })
+
+  it('warns when consent helpers are called before init', async () => {
+    const { getTrackingConsent, isTrackingEnabled } = await importPug()
+
+    expect(isTrackingEnabled()).toBe(false)
+    expect(getTrackingConsent()).toBe('denied')
+    expect(logSpies.warn).toHaveBeenCalledWith('isTrackingEnabled() called before init().')
+    expect(logSpies.warn).toHaveBeenCalledWith('getTrackingConsent() called before init().')
   })
 })

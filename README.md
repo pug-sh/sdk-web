@@ -48,24 +48,25 @@ init('your-project-id', {
 })
 ```
 
-For consent-first flows, start with tracking opted out. While opted out, automatic events, manual `track()`, and `identify()` are dropped. Events are not queued for later replay.
+For consent-first flows, start with tracking consent denied. While denied, automatic listeners are not attached, and manual `track()` and `identify()` are dropped. Events are not queued for later replay. Consent state is in-memory only — on each page load, pass `defaultTrackingConsent` according to your own consent storage.
 
 ```ts
 import { init, optInTracking, optOutTracking, setAutoCapture } from 'pug-web'
 
 init('your-project-id', {
   apiKey: 'your-api-key',
-  optOutTrackingByDefault: true,
-  autoCapture: false,
+  defaultTrackingConsent: 'denied',
+  autoCapture: { pageView: true, click: true },
 })
 
-// After consent is granted:
+// After consent is granted, stored autoCapture selection is applied:
 optInTracking()
+
+// To change automatic listeners while opted in:
 setAutoCapture({ pageView: true, click: true })
 
-// If consent is revoked:
+// If consent is revoked, listeners are torn down automatically:
 optOutTracking()
-setAutoCapture(false)
 ```
 
 ### Init options
@@ -77,18 +78,17 @@ setAutoCapture(false)
 | `samplingRate` | `number` | `1` | Fraction of sessions to track (0–1). |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
 | `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object enables only keys set to `true`. |
-| `autoTrack` | `boolean \| AutoCaptureSelection` | — | Deprecated alias for `autoCapture`. |
-| `optOutTrackingByDefault` | `boolean` | `false` | Starts global tracking consent as denied. While denied, `track()` and `identify()` are ignored. |
+| `defaultTrackingConsent` | `'granted' \| 'denied'` | `'granted'` | Initial tracking consent. While `'denied'`, automatic listeners stay off and `track()` / `identify()` are ignored. Not persisted across reloads. |
 
 ### Tracking consent API
 
 | Function | Description |
 |---|---|
-| `optInTracking()` | Allows future automatic events, manual `track()`, and `identify()` calls to send. |
-| `optOutTracking()` | Drops future automatic events, manual `track()`, and `identify()` calls. Does not remove automatic listeners by itself. |
-| `hasOptedInTracking()` | Returns `true` when the current SDK instance can send tracking calls. |
-| `getTrackingConsentStatus()` | Returns `'granted'` or `'denied'`. |
-| `setAutoCapture(selection)` | Adds or removes SDK-owned automatic listeners at runtime. This does not override tracking consent. |
+| `optInTracking()` | Grants consent, applies the stored `autoCapture` selection, and allows `track()` / `identify()` to send. |
+| `optOutTracking()` | Revokes consent, tears down automatic listeners, and drops future `track()` / `identify()` calls. |
+| `isTrackingEnabled()` | Returns `true` when the current SDK instance can send tracking calls. Warns and returns `false` before `init()`. |
+| `getTrackingConsent()` | Returns `'granted'` or `'denied'`. Warns and returns `'denied'` before `init()`. |
+| `setAutoCapture(selection)` | Stores the desired automatic listener selection. Applies immediately when consent is granted; deferred until `optInTracking()` when denied. |
 
 ### API
 
