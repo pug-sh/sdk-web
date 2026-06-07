@@ -3,12 +3,13 @@ import { create } from '@bufbuild/protobuf'
 import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
 import { createApiTransport } from './api-transport.js'
+import {
+  type AutoCaptureConfig,
+  type AutoCaptureController,
+  type AutoCaptureSelection,
+  createAutoCaptureController,
+} from './auto-capture.js'
 import { type BatchConfig, createBatchedTransport } from './batch.js'
-import { setupClickTracking } from './events/click.js'
-import { setupFormTracking } from './events/form.js'
-import { setupDeadClickTracking, setupRageClickTracking } from './events/frustration.js'
-import { setupPageViewTracking } from './events/page_view.js'
-import { setupScrollTracking } from './events/scroll.js'
 import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
 import {
@@ -22,7 +23,8 @@ import {
 } from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
 import { type JsonValue, type TrackFn, type TrackOptions, toEvent } from './track.js'
-import { DEVICE_ID_KEY } from './utils.js'
+import { createTrackingConsent, type TrackingConsent, type TrackingConsentController } from './tracking-consent.js'
+import { DEFAULT_ENDPOINT, DEVICE_ID_KEY } from './utils.js'
 
 export interface PugConfig {
   readonly endpoint: string
@@ -32,24 +34,27 @@ export interface PugConfig {
 export interface InitOptions {
   readonly endpoint?: string
   readonly apiKey: string
-  readonly samplingRate?: number
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
   readonly session?: SessionConfig
-  readonly autoTrack?: boolean
+  readonly autoCapture?: AutoCaptureConfig
+  readonly defaultTrackingConsent?: TrackingConsent
 }
+
+export type { AutoCaptureConfig, AutoCaptureSelection, TrackingConsent }
 
 interface PugState {
   readonly config: PugConfig
   readonly transport: ReturnType<typeof createBatchedTransport>
   readonly apiKey: string
   readonly dryRun: boolean
+  readonly autoCapture: AutoCaptureController
+  readonly trackingConsent: TrackingConsentController
 }
 
 const validator = createValidator()
 
 let state: PugState | null = null
-let cleanups: { name: string; fn: () => void }[] = []
 
 type ProfilesClient = ReturnType<typeof createClient<typeof ProfilesSDKService>>
 
@@ -85,18 +90,7 @@ export const init = (projectId: string, options: InitOptions) => {
     return
   }
 
-  let samplingRate = options.samplingRate ?? 1
-  if (samplingRate < 0 || samplingRate > 1) {
-    log.warn(`samplingRate must be between 0 and 1, got ${samplingRate}. Clamping.`)
-    samplingRate = Math.max(0, Math.min(1, samplingRate))
-  }
-
-  // TODO(sampling): implement session-level sampling — either hash a device/user ID
-  // for deterministic sampling or use a random per-session coin flip.
-
-  const config: PugConfig = { endpoint: options.endpoint || 'https://polrotifications.circlejerk.in', projectId }
-
-  cleanups = []
+  const config: PugConfig = { endpoint: options.endpoint || DEFAULT_ENDPOINT, projectId }
 
   try {
     configureSession(projectId, options.session)
@@ -117,47 +111,86 @@ export const init = (projectId: string, options: InitOptions) => {
   }
 
   const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
+  const trackingConsent = createTrackingConsent(options.defaultTrackingConsent ?? 'granted')
+  const autoCapture = createAutoCaptureController(track, trackingConsent.isGranted)
 
-  state = { config, transport, apiKey: options.apiKey, dryRun: options.dryRun ?? false }
+  state = {
+    config,
+    transport,
+    apiKey: options.apiKey,
+    dryRun: options.dryRun ?? false,
+    autoCapture,
+    trackingConsent,
+  }
 
   if (state.dryRun) {
     log.warn('Dry run mode enabled — events will not be sent.')
   }
-
-  const autoTrack = typeof options.autoTrack === 'boolean' ? options.autoTrack : true
-  if (options.autoTrack !== undefined && !autoTrack) {
-    log.warn(`autoTrack must be a boolean, got ${typeof options.autoTrack}. Defaulting to true.`)
+  if (!state.trackingConsent.isGranted()) {
+    log.warn(
+      'Tracking consent is denied — automatic capture is off and track()/identify() are dropped until optInTracking() is called. Check isTrackingEnabled() to detect this state.',
+    )
   }
 
-  if (!autoTrack) {
-    log.warn('Initialized (autoTrack disabled — no trackers).')
-    return
-  }
-
-  const trackers = [
-    setupPageViewTracking,
-    setupClickTracking,
-    setupScrollTracking,
-    setupFormTracking,
-    setupRageClickTracking,
-    setupDeadClickTracking,
-  ]
-
-  let failedCount = 0
-  for (const setup of trackers) {
-    try {
-      const cleanup = setup(track)
-      cleanups.push({ name: setup.name, fn: cleanup })
-    } catch (err) {
-      failedCount++
-      log.error(`Failed to initialize tracker "${setup.name}":`, err)
-    }
-  }
-  if (failedCount > 0) {
-    log.warn(`${failedCount}/${trackers.length} trackers failed to initialize.`)
-  }
+  state.autoCapture.setDesired(options.autoCapture)
 
   log.debug('Initialized.')
+}
+
+export const setAutoCapture = (autoCapture: AutoCaptureConfig): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (!state) {
+    log.warn('setAutoCapture() called before init().')
+    return
+  }
+  state.autoCapture.setDesired(autoCapture)
+  if (!state.trackingConsent.isGranted()) {
+    log.debug('setAutoCapture() stored selection; listeners activate after opt-in.')
+  }
+}
+
+export const optInTracking = (): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (!state) {
+    log.warn('optInTracking() called before init().')
+    return
+  }
+  state.trackingConsent.optIn()
+  state.autoCapture.apply()
+  log.debug('Tracking opted in.')
+}
+
+export const optOutTracking = (): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (!state) {
+    log.warn('optOutTracking() called before init().')
+    return
+  }
+  state.trackingConsent.optOut()
+  state.autoCapture.apply()
+  log.debug('Tracking opted out.')
+}
+
+export const isTrackingEnabled = (): boolean => {
+  if (!state) {
+    log.warn('isTrackingEnabled() called before init().')
+    return false
+  }
+  return state.trackingConsent.isGranted()
+}
+
+export const getTrackingConsent = (): TrackingConsent => {
+  if (!state) {
+    log.warn('getTrackingConsent() called before init().')
+    return 'denied'
+  }
+  return state.trackingConsent.getConsent()
 }
 
 export const destroy = () => {
@@ -170,13 +203,7 @@ export const destroy = () => {
     return
   }
 
-  for (const cleanup of cleanups) {
-    try {
-      cleanup.fn()
-    } catch (err) {
-      log.error(`Error during cleanup of "${cleanup.name}":`, err)
-    }
-  }
+  state.autoCapture.destroy()
 
   try {
     state.transport.destroy()
@@ -188,7 +215,6 @@ export const destroy = () => {
   destroyProfile()
   profilesClient = null
 
-  cleanups = []
   state = null
 }
 
@@ -215,60 +241,69 @@ export const reset = () => {
 }
 
 /**
- * Throws on invalid input (sync) and on RPC failure (async). Callers must handle errors.
+ * Never throws — invalid input, calls before init(), denied consent, dryRun, and RPC failures are
+ * logged and the promise resolves without sending. Callers may await it without their own try/catch.
  * On first identify, includes anonymousId (for profile merge) and, if available, deviceId (for push device linking).
  */
 export const identify = async (externalId: string, traits?: Record<string, JsonValue>): Promise<void> => {
-  if (typeof window === 'undefined') {
-    log.warn('identify() called in a non-browser environment, skipping.')
-    return
-  }
-  if (!state) {
-    log.warn('identify() called before init().')
-    return
-  }
-  if (!externalId || typeof externalId !== 'string') {
-    throw new Error('[Pug SDK] identify() requires a non-empty externalId string')
-  }
-  if (state.dryRun) {
-    log.debug('dryRun: would identify')
-    return
-  }
-
-  const client = getProfilesClient()
-
-  const firstIdentify = !isIdentified()
-  let deviceId = ''
-  if (firstIdentify) {
-    try {
-      deviceId = localStorage.getItem(DEVICE_ID_KEY) ?? ''
-    } catch (err) {
-      log.warn('localStorage access failed for device ID, skipping push device linking:', err)
-    }
-  }
-
-  const req = create(IdentifyRequestSchema, {
-    externalId,
-    traits,
-    ...(firstIdentify && { anonymousId: getAnonymousId() }),
-    ...(deviceId && { deviceId }),
-  })
-
-  const validation = validator.validate(IdentifyRequestSchema, req)
-  if (validation.kind !== 'valid') {
-    const detail =
-      validation.kind === 'invalid'
-        ? validation.violations.map(v => `${v.field}: ${v.message}`).join(', ')
-        : String(validation.error)
-    throw new Error(`[Pug SDK] Invalid identify request: ${detail}`)
-  }
-
   try {
-    await client.identify(req)
-    markIdentified(externalId)
+    if (typeof window === 'undefined') {
+      log.warn('identify() called in a non-browser environment, skipping.')
+      return
+    }
+    if (!state) {
+      log.warn('identify() called before init().')
+      return
+    }
+    if (!externalId || typeof externalId !== 'string') {
+      log.error('identify() requires a non-empty externalId string.')
+      return
+    }
+    if (!state.trackingConsent.isGranted()) {
+      log.debug('identify() dropped because tracking consent is denied.')
+      return
+    }
+    if (state.dryRun) {
+      log.debug('dryRun: would identify')
+      return
+    }
+
+    const firstIdentify = !isIdentified()
+    let deviceId = ''
+    if (firstIdentify) {
+      try {
+        deviceId = localStorage.getItem(DEVICE_ID_KEY) ?? ''
+      } catch (err) {
+        log.warn('localStorage access failed for device ID, skipping push device linking:', err)
+      }
+    }
+
+    const req = create(IdentifyRequestSchema, {
+      externalId,
+      traits,
+      ...(firstIdentify && { anonymousId: getAnonymousId() }),
+      ...(deviceId && { deviceId }),
+    })
+
+    const validation = validator.validate(IdentifyRequestSchema, req)
+    if (validation.kind !== 'valid') {
+      const detail =
+        validation.kind === 'invalid'
+          ? validation.violations.map(v => `${v.field}: ${v.message}`).join(', ')
+          : String(validation.error)
+      log.error(`Invalid identify request: ${detail}`)
+      return
+    }
+
+    try {
+      const client = getProfilesClient()
+      await client.identify(req)
+      markIdentified(externalId)
+    } catch (err) {
+      log.error('Failed to identify:', err)
+    }
   } catch (err) {
-    log.error('Failed to identify:', err)
-    throw err
+    log.error(`Unexpected error in identify("${externalId}"):`, err)
   }
 }
 
@@ -281,6 +316,11 @@ export const track: TrackFn = (kind: string, props?: Record<string, unknown>, op
 
     if (!state) {
       log.warn('track() called before init().')
+      return
+    }
+
+    if (!state.trackingConsent.isGranted()) {
+      log.debug(`track("${kind}") dropped because tracking consent is denied.`)
       return
     }
 

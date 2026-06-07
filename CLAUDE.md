@@ -28,7 +28,15 @@ bun run test:watch     # Run tests in watch mode (vitest)
 
 ### Core (`src/pug.ts`)
 
-`pug.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, `identify(externalId, traits?)`, `reset()`, and `destroy()`. A single nullable module-scoped `state` object (`{ config, transport, apiKey, dryRun } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport) and iterates over tracker setup functions each wrapped in try/catch for isolation. Each tracker returns a cleanup function stored in a module-level `cleanups` array. `track()` calls `resolveSessionId()` from `session.ts` on every event, uses `toEvent()` from `track.ts` to build a protobuf `Event`, and sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes all cleanup functions (each wrapped in try/catch), calls `transport.destroy()`, `destroySession()`, `destroyProfile()`, nulls the profiles client, and resets state to allow re-initialization.
+`pug.ts` exports `init(projectId, options)`, `track(kind, props?, opts?)`, `identify(externalId, traits?)`, `reset()`, `destroy()`, `setAutoCapture(selection)`, `optInTracking()`, `optOutTracking()`, `isTrackingEnabled()`, and `getTrackingConsent()`. A single nullable module-scoped `state` object (`{ config, transport, apiKey, dryRun, autoCapture, trackingConsent } | null`) enforces single initialization. `init()` creates the batched transport (which internally creates the RPC transport), creates the tracking-consent and auto-capture controllers (the auto-capture controller owns the desired selection and gates listeners on consent via an injected `isGranted` getter), and applies the selection with `setDesired()`. `defaultTrackingConsent` sets the initial consent (`'granted'` or `'denied'`); while denied, automatic listeners stay off, `track()` and `identify()` drop calls at debug level, and no events are queued. Consent is in-memory only — callers with cross-reload consent needs should pass `defaultTrackingConsent` from their own storage on each `init()`. `optOutTracking()` revokes consent and re-reconciles (tearing listeners down); `optInTracking()` re-reconciles, restoring the stored selection. `track()` calls `resolveSessionId()` from `session.ts` on every allowed event, uses `toEvent()` from `track.ts` to build a protobuf `Event`, and sends it through the transport with a centralized try/catch for error safety. `destroy()` invokes active tracker cleanup functions through the auto-capture controller, calls `transport.destroy()`, `destroySession()`, `destroyProfile()`, nulls the profiles client, and resets state to allow re-initialization.
+
+### Auto-Capture (`src/auto-capture.ts`)
+
+Owns SDK automatic listener selection and lifecycle. `autoCapture` supports `true`/`false` or an `AutoCaptureSelection` object; object mode is an allowlist, so only keys set to `true` are enabled and omitted keys stay off. Runtime tracker cleanup is owned per tracker in a controller-local `Map`, allowing `setAutoCapture()` to add/remove SDK-owned listeners after init without bloating `pug.ts`.
+
+### Tracking Consent (`src/tracking-consent.ts`)
+
+Owns the in-memory consent state (`TrackingConsent`: `'granted' | 'denied'`). It is intentionally not persisted; callers that need consent across reloads should pass `defaultTrackingConsent` according to their own consent storage on each `init()`. The auto-capture controller stores the desired `autoCapture` selection and gates listener attachment on consent (read through an injected `isGranted` getter), so `setAutoCapture()` can be called before opt-in and the selection is re-applied on `optInTracking()`. When `init()` runs with consent denied it logs a one-time `log.warn`; integrators can detect the state via `isTrackingEnabled()`.
 
 ### Parsers (`src/parsers.ts`)
 
@@ -58,7 +66,7 @@ Module-level state, no classes. Manages anonymous profile IDs persisted to `loca
 - `clearProfile()` — clears storage (both anonymous ID and external ID) and resets identified state. Called by `pug.reset()`.
 - `destroyProfile()` — clears profile and resets all module state. Called by `pug.destroy()`.
 
-`identify(externalId, traits?)` in `pug.ts` sends the `ProfilesSDKService.Identify` RPC. On the first call, it includes `anonymousId` so the server merges the anonymous profile into the identified one. Subsequent calls send an empty `anonymousId` (trait-only updates). The profiles RPC client is lazy-created on first `identify()` call. Respects `dryRun` mode.
+`identify(externalId, traits?)` in `pug.ts` sends the `ProfilesSDKService.Identify` RPC. On the first call, it includes `anonymousId` so the server merges the anonymous profile into the identified one. Subsequent calls send an empty `anonymousId` (trait-only updates). The profiles RPC client is lazy-created on first allowed `identify()` call. Respects tracking consent and `dryRun` mode.
 
 ### Well-Known Events (`src/well-known-events.ts` + `src/well-known-events.generated.ts`)
 
@@ -100,6 +108,8 @@ The queue storage implementations share a common shape with a two-phase lock/com
 
 Each tracker module exports a `setup*Tracking(track: TrackFn)` function that returns a cleanup function. They are called during `init()`, each wrapped in try/catch to isolate failures:
 
+`autoCapture` maps to these tracker modules by key: `pageView`, `click`, `scroll`, `form`, `rageClick`, and `deadClick`.
+
 | Module           | Events                      | Notes                                                                                                                                                                                                                                                                                                        |
 | ---------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `page_view.ts`   | `page_view`                 | Patches `history.pushState`/`replaceState`, listens to `popstate`. Handles third-party patching gracefully: if another library patches on top, cleanup silences the orphaned wrapper instead of breaking the chain. Re-init after partial destroy reactivates orphaned wrappers without creating duplicates. |
@@ -135,10 +145,11 @@ Push is an optional, tree-shakeable module — `pug.ts` never imports it, so non
 ### Design Invariants
 
 - **`track()` must never throw.** It is wrapped in a centralized try/catch (with defensive logging via the internal `log` module) and any transport errors are caught via `.catch()`. Because trackers call `track()` from places like monkey-patched `history.pushState`/`replaceState`, an exception would break the host application. Callers may rely on `track()` being safe to call without their own error handling.
+- **`identify()` must never throw.** Like `track()`, it is wrapped in a centralized try/catch; invalid input, calls before `init()`, denied consent, `dryRun`, and RPC failures are logged and the returned promise resolves without sending. Callers may `await` it without their own error handling.
 
 ## TypeScript & Module Setup
 
 - Target/module: ES2020, strict mode, declarations emitted to `dist/`
 - Imports within `src/` use `.js` extensions (required for ES module resolution at runtime)
 - Module resolution: `bundler`
-- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track`, `reset`, `identify`, `rotate` and types `PugConfig`, `InitOptions`, `BatchConfig`, `TrackOptions`, `SessionConfig`, `JsonValue`, `JsonObject`, `TrackFn`, `WellKnownEventName`, `WellKnownEventPropsMap`; and from `push.ts`: `subscribePush`, `unsubscribePush`, `setupNotificationClickTracking`, `PushOptions`. `JsonValue` and `JsonObject` are re-exported from `@bufbuild/protobuf`. Deprecated alias `PugEventName` (→ `WellKnownEventName`) is re-exported for backward compatibility. Internal module functions and implementation details are not publicly exported.
+- Barrel export: `src/index.ts` re-exports `init`, `destroy`, `track`, `reset`, `identify`, `setAutoCapture`, `optInTracking`, `optOutTracking`, `isTrackingEnabled`, `getTrackingConsent`, `rotate` and types `PugConfig`, `InitOptions`, `AutoCaptureSelection`, `AutoCaptureConfig`, `TrackingConsent`, `BatchConfig`, `TrackOptions`, `SessionConfig`, `JsonValue`, `JsonObject`, `TrackFn`, `WellKnownEventName`, `WellKnownEventPropsMap`; and from `push.ts`: `subscribePush`, `unsubscribePush`, `setupNotificationClickTracking`, `PushOptions`. `JsonValue` and `JsonObject` are re-exported from `@bufbuild/protobuf`. Deprecated alias `PugEventName` (→ `WellKnownEventName`) is re-exported for backward compatibility. Internal module functions and implementation details are not publicly exported.

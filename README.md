@@ -16,7 +16,7 @@ npm install pug-web
 import { init, identify, track, destroy } from 'pug-web'
 
 init('your-project-id', {
-  token: 'your-api-key',
+  apiKey: 'your-api-key',
   endpoint: 'https://your-backend.example.com',
 })
 
@@ -35,14 +35,59 @@ destroy()
 
 All standard events (page views, clicks, scrolls, forms, rage clicks, dead clicks) are captured automatically after `init()`.
 
+To selectively enable only some automatically captured events, use `autoCapture`. Object mode is an allowlist: omitted keys are disabled.
+
+```ts
+init('your-project-id', {
+  apiKey: 'your-api-key',
+  autoCapture: {
+    pageView: true,
+    click: true,
+    scroll: false,
+  },
+})
+```
+
+For consent-first flows, start with tracking consent denied. While denied, automatic listeners are not attached, and manual `track()` and `identify()` are dropped. Events are not queued for later replay. Consent state is in-memory only — on each page load, pass `defaultTrackingConsent` according to your own consent storage.
+
+```ts
+import { init, optInTracking, optOutTracking, setAutoCapture } from 'pug-web'
+
+init('your-project-id', {
+  apiKey: 'your-api-key',
+  defaultTrackingConsent: 'denied',
+  autoCapture: { pageView: true, click: true },
+})
+
+// After consent is granted, stored autoCapture selection is applied:
+optInTracking()
+
+// To change automatic listeners while opted in:
+setAutoCapture({ pageView: true, click: true })
+
+// If consent is revoked, listeners are torn down automatically:
+optOutTracking()
+```
+
 ### Init options
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `token` | `string` | — | **Required.** API key. |
-| `endpoint` | `string` | `http://localhost:8080` | Backend base URL. |
-| `samplingRate` | `number` | `1` | Fraction of sessions to track (0–1). |
+| `apiKey` | `string` | — | **Required.** API key. |
+| `endpoint` | `string` | `https://polru.pug.sh` | Backend base URL. |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
+| `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object enables only keys set to `true`. |
+| `defaultTrackingConsent` | `'granted' \| 'denied'` | `'granted'` | Initial tracking consent. While `'denied'`, automatic listeners stay off and `track()` / `identify()` are ignored. Not persisted across reloads. |
+
+### Tracking consent API
+
+| Function | Description |
+|---|---|
+| `optInTracking()` | Grants consent, applies the stored `autoCapture` selection, and allows `track()` / `identify()` to send. |
+| `optOutTracking()` | Revokes consent, tears down automatic listeners, and drops future `track()` / `identify()` calls. |
+| `isTrackingEnabled()` | Returns `true` when the current SDK instance can send tracking calls. Warns and returns `false` before `init()`. |
+| `getTrackingConsent()` | Returns `'granted'` or `'denied'`. Warns and returns `'denied'` before `init()`. |
+| `setAutoCapture(selection)` | Stores the desired automatic listener selection. Applies immediately when consent is granted; deferred until `optInTracking()` when denied. |
 
 ### API
 
@@ -64,7 +109,7 @@ await identify('user_123', {
 - `traits` is an optional object of profile properties. Values should be JSON-compatible.
 - On the first identify call, the SDK includes the anonymous ID so anonymous events can be merged into the identified profile.
 - If push is configured, the first identify call also links the browser's push device ID to the profile.
-- `identify()` returns a promise and throws for invalid input or RPC failures.
+- `identify()` returns a promise and never throws — invalid input, denied consent, dry-run, and RPC failures are logged and the call resolves without sending. Check `isTrackingEnabled()` first if you need to branch on consent.
 
 Use `reset()` when a user signs out or switches accounts:
 
@@ -210,8 +255,8 @@ const handleEnablePush = async () => {
 
   await subscribePush('BExampleVAPIDPublicKeyBase64url...', {
     endpoint: 'https://your-backend.example.com', // same as init()
-    token: 'your-api-key',                        // same as init()
-    swPath: '/pug_sw.js',                      // optional, defaults to /pug_sw.js
+    apiKey: 'your-api-key',                       // same as init()
+    swPath: '/pug_sw.js',                         // optional, defaults to /pug_sw.js
     profileId: 'user-uuid',                       // optional, links push device to a known profile
     profileExternalId: 'user@example.com',        // optional
   })
@@ -221,7 +266,7 @@ const handleEnablePush = async () => {
 | Option | Type | Description |
 |---|---|---|
 | `endpoint` | `string` | **Required.** Backend base URL (same value passed to `init()`). |
-| `token` | `string` | **Required.** API key (same value passed to `init()`). |
+| `apiKey` | `string` | **Required.** API key (same value passed to `init()`). |
 | `swPath` | `string` | Path to the service worker file. Defaults to `/pug_sw.js`. |
 | `profileId` | `string` | Pug profile UUID to associate with this device. |
 | `profileExternalId` | `string` | External identifier (e.g. email) to associate with this device. |
@@ -239,7 +284,7 @@ Call it once after `init()`. It returns a cleanup function — pass it to `destr
 import { init, track, destroy } from 'pug-web'
 import { setupNotificationClickTracking } from 'pug-web'
 
-init('your-project-id', { token: 'your-api-key' })
+init('your-project-id', { apiKey: 'your-api-key' })
 
 const cleanupPushTracking = setupNotificationClickTracking(track)
 
