@@ -1,5 +1,8 @@
 export const DEVICE_ID_KEY = 'pug_device_id'
 
+/** Default backend base URL used when `init()` is called without an explicit `endpoint`. */
+export const DEFAULT_ENDPOINT = 'https://polru.pug.sh'
+
 export const makeStorageKey = (projectId: string, name: string): string => `__pug_${projectId}_${name}__`
 
 export const urlBase64ToUint8Array = (base64String: string): Uint8Array<ArrayBuffer> => {

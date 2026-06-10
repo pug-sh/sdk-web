@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { isIdentified, markIdentified } from './profile.js'
 
 const logSpies = {
   warn: vi.fn(),
@@ -24,6 +25,10 @@ const transportSpies = {
   destroy: vi.fn(),
 }
 
+const profilesClientSpies = {
+  identify: vi.fn(() => Promise.resolve({})),
+}
+
 const trackerSpies = {
   pageView: vi.fn(() => cleanupSpies.pageView),
   click: vi.fn(() => cleanupSpies.click),
@@ -35,6 +40,14 @@ const trackerSpies = {
 
 vi.mock('./batch.js', () => ({
   createBatchedTransport: vi.fn(() => transportSpies),
+}))
+
+vi.mock('@connectrpc/connect', () => ({
+  createClient: vi.fn(() => profilesClientSpies),
+}))
+
+vi.mock('./api-transport.js', () => ({
+  createApiTransport: vi.fn(() => ({})),
 }))
 
 vi.mock('./events/page_view.js', () => ({
@@ -92,6 +105,8 @@ beforeEach(() => {
   trackerSpies.rageClick.mockImplementation(() => cleanupSpies.rageClick)
   trackerSpies.deadClick.mockImplementation(() => cleanupSpies.deadClick)
   transportSpies.send.mockImplementation(() => Promise.resolve())
+  profilesClientSpies.identify.mockImplementation(() => Promise.resolve({}))
+  vi.mocked(isIdentified).mockReturnValue(false)
 })
 
 afterEach(async () => {
@@ -188,7 +203,7 @@ describe('init autoCapture', () => {
     )
   })
 
-  it('logs an aggregate warning when tracker setup fails', async () => {
+  it('logs an aggregate error when tracker setup fails', async () => {
     trackerSpies.click.mockImplementation(() => {
       throw new Error('boom')
     })
@@ -197,7 +212,7 @@ describe('init autoCapture', () => {
     init('project-id', { apiKey: 'api-key', autoCapture: { click: true, scroll: true } })
 
     expect(trackerSpies.scroll).toHaveBeenCalledOnce()
-    expect(logSpies.warn).toHaveBeenCalledWith('1/2 trackers failed to initialize.')
+    expect(logSpies.error).toHaveBeenCalledWith('1/2 trackers failed to initialize.')
   })
 })
 
@@ -235,6 +250,19 @@ describe('runtime autoCapture', () => {
 
     expect(cleanupSpies.click).toHaveBeenCalledOnce()
     expect(cleanupSpies.form).toHaveBeenCalledOnce()
+  })
+
+  it('does not tear down a tracker that stays enabled across setAutoCapture calls', async () => {
+    const { init, setAutoCapture } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: { click: true } })
+    expect(trackerSpies.click).toHaveBeenCalledOnce()
+
+    setAutoCapture({ click: true, form: true })
+
+    expect(trackerSpies.click).toHaveBeenCalledOnce()
+    expect(cleanupSpies.click).not.toHaveBeenCalled()
+    expect(trackerSpies.form).toHaveBeenCalledOnce()
   })
 })
 
@@ -308,6 +336,8 @@ describe('tracking consent', () => {
     init('project-id', { apiKey: 'api-key', autoCapture: false, defaultTrackingConsent: 'denied' })
 
     await expect(identify('user-1')).resolves.toBeUndefined()
+    expect(profilesClientSpies.identify).not.toHaveBeenCalled()
+    expect(markIdentified).not.toHaveBeenCalled()
   })
 
   it('runtime opt out blocks later track calls', async () => {
@@ -353,5 +383,100 @@ describe('tracking consent', () => {
     expect(getTrackingConsent()).toBe('denied')
     expect(logSpies.warn).toHaveBeenCalledWith('isTrackingEnabled() called before init().')
     expect(logSpies.warn).toHaveBeenCalledWith('getTrackingConsent() called before init().')
+  })
+
+  it('reports granted consent after opt in', async () => {
+    const { getTrackingConsent, init, isTrackingEnabled, optInTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, defaultTrackingConsent: 'denied' })
+    expect(isTrackingEnabled()).toBe(false)
+
+    optInTracking()
+
+    expect(isTrackingEnabled()).toBe(true)
+    expect(getTrackingConsent()).toBe('granted')
+  })
+
+  it('warns once at init when consent is denied', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, defaultTrackingConsent: 'denied' })
+
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('Tracking consent is denied'))
+  })
+
+  it('restores the same selection across an opt-out / opt-in cycle', async () => {
+    const { init, optInTracking, optOutTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: { scroll: true, form: true } })
+    expect(trackerSpies.scroll).toHaveBeenCalledOnce()
+    expect(trackerSpies.form).toHaveBeenCalledOnce()
+
+    optOutTracking()
+    expect(cleanupSpies.scroll).toHaveBeenCalledOnce()
+    expect(cleanupSpies.form).toHaveBeenCalledOnce()
+
+    optInTracking()
+    expect(trackerSpies.scroll).toHaveBeenCalledTimes(2)
+    expect(trackerSpies.form).toHaveBeenCalledTimes(2)
+    expect(trackerSpies.click).not.toHaveBeenCalled()
+  })
+
+  it('is idempotent across repeated opt-in calls', async () => {
+    const { init, optInTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: { click: true } })
+    optInTracking()
+    optInTracking()
+
+    expect(trackerSpies.click).toHaveBeenCalledOnce()
+    expect(cleanupSpies.click).not.toHaveBeenCalled()
+  })
+
+  it('does not double-invoke cleanups when destroy follows opt out', async () => {
+    const { destroy, init, optOutTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: { click: true } })
+    optOutTracking()
+    expect(cleanupSpies.click).toHaveBeenCalledOnce()
+
+    destroy()
+    expect(cleanupSpies.click).toHaveBeenCalledOnce()
+  })
+})
+
+describe('identify', () => {
+  it('sends identify and marks identified after opt in', async () => {
+    vi.mocked(isIdentified).mockReturnValue(true)
+    const { identify, init, optInTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, defaultTrackingConsent: 'denied' })
+    optInTracking()
+    await identify('user-1')
+
+    expect(profilesClientSpies.identify).toHaveBeenCalledOnce()
+    expect(markIdentified).toHaveBeenCalledWith('user-1')
+  })
+
+  it('does not throw on an invalid externalId', async () => {
+    const { identify, init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+
+    await expect(identify('')).resolves.toBeUndefined()
+    expect(profilesClientSpies.identify).not.toHaveBeenCalled()
+    expect(logSpies.error).toHaveBeenCalledWith(expect.stringContaining('non-empty externalId'))
+  })
+
+  it('swallows RPC failures without throwing', async () => {
+    vi.mocked(isIdentified).mockReturnValue(true)
+    profilesClientSpies.identify.mockImplementationOnce(() => Promise.reject(new Error('rpc down')))
+    const { identify, init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+
+    await expect(identify('user-1')).resolves.toBeUndefined()
+    expect(logSpies.error).toHaveBeenCalledWith('Failed to identify:', expect.any(Error))
+    expect(markIdentified).not.toHaveBeenCalled()
   })
 })

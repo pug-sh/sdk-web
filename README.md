@@ -74,8 +74,7 @@ optOutTracking()
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `apiKey` | `string` | — | **Required.** API key. |
-| `endpoint` | `string` | `http://localhost:8080` | Backend base URL. |
-| `samplingRate` | `number` | `1` | Fraction of sessions to track (0–1). |
+| `endpoint` | `string` | `https://polru.pug.sh` | Backend base URL. |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
 | `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object enables only keys set to `true`. |
 | `defaultTrackingConsent` | `'granted' \| 'denied'` | `'granted'` | Initial tracking consent. While `'denied'`, automatic listeners stay off and `track()` / `identify()` are ignored. Not persisted across reloads. |
@@ -110,7 +109,7 @@ await identify('user_123', {
 - `traits` is an optional object of profile properties. Values should be JSON-compatible.
 - On the first identify call, the SDK includes the anonymous ID so anonymous events can be merged into the identified profile.
 - If push is configured, the first identify call also links the browser's push device ID to the profile.
-- `identify()` returns a promise and throws for invalid input or RPC failures.
+- `identify()` returns a promise and never throws — invalid input, denied consent, dry-run, and RPC failures are logged and the call resolves without sending. Check `isTrackingEnabled()` first if you need to branch on consent.
 
 Use `reset()` when a user signs out or switches accounts:
 
