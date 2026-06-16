@@ -107,6 +107,7 @@ beforeEach(() => {
   transportSpies.send.mockImplementation(() => Promise.resolve())
   profilesClientSpies.identify.mockImplementation(() => Promise.resolve({}))
   vi.mocked(isIdentified).mockReturnValue(false)
+  localStorage.clear()
 })
 
 afterEach(async () => {
@@ -478,5 +479,55 @@ describe('identify', () => {
     await expect(identify('user-1')).resolves.toBeUndefined()
     expect(logSpies.error).toHaveBeenCalledWith('Failed to identify:', expect.any(Error))
     expect(markIdentified).not.toHaveBeenCalled()
+  })
+})
+
+describe('tracking consent persistence', () => {
+  const CONSENT_KEY = '__pug_project-id_consent__'
+
+  it('persists consent across a destroy / re-init cycle', async () => {
+    const { destroy, getTrackingConsent, init, optOutTracking } = await importPug()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      trackingConsent: { default: 'granted', persist: true },
+    })
+    optOutTracking()
+    expect(localStorage.getItem(CONSENT_KEY)).toBe('denied')
+
+    destroy()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      trackingConsent: { default: 'granted', persist: true },
+    })
+    expect(getTrackingConsent()).toBe('denied')
+  })
+
+  it('does not persist consent when persist is not set', async () => {
+    const { init, optOutTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, trackingConsent: 'granted' })
+    optOutTracking()
+
+    expect(localStorage.getItem(CONSENT_KEY)).toBeNull()
+  })
+
+  it('reset does not clear persisted consent', async () => {
+    const { init, optOutTracking, reset } = await importPug()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      trackingConsent: { default: 'granted', persist: true },
+    })
+    optOutTracking()
+    expect(localStorage.getItem(CONSENT_KEY)).toBe('denied')
+
+    reset()
+
+    expect(localStorage.getItem(CONSENT_KEY)).toBe('denied')
   })
 })
