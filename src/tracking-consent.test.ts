@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { isStorageAvailable } from './utils.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { isStorageAvailable, makeStorageKey } from './utils.js'
 
 const logSpies = { warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 
@@ -11,7 +11,7 @@ vi.mock('./utils.js', async importOriginal => {
   return { ...actual, isStorageAvailable: vi.fn(() => true) }
 })
 
-const KEY = '__pug_proj_consent__'
+const KEY = makeStorageKey('proj', 'consent')
 
 // Dynamic import so the mocked logger is wired up before the module loads
 // (matches the pattern in pug.test.ts).
@@ -21,6 +21,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(isStorageAvailable).mockReturnValue(true)
   localStorage.clear()
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('createTrackingConsent', () => {
@@ -73,7 +77,7 @@ describe('createTrackingConsent', () => {
     const createTrackingConsent = await loadFactory()
     const consent = createTrackingConsent('proj', { default: 'granted', persist: true })
     expect(consent.getConsent()).toBe('granted')
-    expect(logSpies.warn).toHaveBeenCalledWith('Stored tracking consent "maybe" is invalid, ignoring.')
+    expect(logSpies.warn).toHaveBeenCalledWith(`Stored tracking consent "maybe" at "${KEY}" is invalid, ignoring.`)
   })
 
   it('falls back to in-memory and warns when storage is unavailable', async () => {
@@ -85,6 +89,30 @@ describe('createTrackingConsent', () => {
     expect(consent.getConsent()).toBe('granted')
     expect(logSpies.warn).toHaveBeenCalledWith(
       'Storage unavailable; tracking consent will not persist across page loads.',
+    )
+  })
+
+  it('falls back to the seed and warns when reading storage throws', async () => {
+    vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('read boom')
+    })
+    const createTrackingConsent = await loadFactory()
+    const consent = createTrackingConsent('proj', { default: 'denied', persist: true })
+    expect(consent.getConsent()).toBe('denied')
+    expect(logSpies.warn).toHaveBeenCalledWith('Failed to read tracking consent from storage:', expect.any(Error))
+  })
+
+  it('does not throw and logs an error when persisting throws', async () => {
+    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('write boom')
+    })
+    const createTrackingConsent = await loadFactory()
+    const consent = createTrackingConsent('proj', { default: 'granted', persist: true })
+    expect(() => consent.optOut()).not.toThrow()
+    expect(consent.getConsent()).toBe('denied')
+    expect(logSpies.error).toHaveBeenCalledWith(
+      'Failed to persist tracking consent to storage — opt in/out will not survive page reload:',
+      expect.any(Error),
     )
   })
 })

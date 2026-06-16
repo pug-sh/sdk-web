@@ -6,7 +6,7 @@ export type TrackingConsent = 'granted' | 'denied'
 export interface TrackingConsentConfig {
   /** First-run seed used when nothing is persisted yet. Defaults to 'granted'. */
   readonly default?: TrackingConsent
-  /** Persist opt in/out to localStorage and restore it on the next init(). Defaults to false. */
+  /** Persist opt in/out to localStorage and restore any persisted value on construction (i.e. on the next init()). Defaults to false. */
   readonly persist?: boolean
 }
 
@@ -28,7 +28,7 @@ export const createTrackingConsent = (projectId: string, config?: TrackingConsen
       if (stored === 'granted' || stored === 'denied') {
         status = stored
       } else if (stored !== null) {
-        log.warn(`Stored tracking consent "${stored}" is invalid, ignoring.`)
+        log.warn(`Stored tracking consent "${stored}" at "${storageKey}" is invalid, ignoring.`)
       }
     } catch (err) {
       log.warn('Failed to read tracking consent from storage:', err)
@@ -42,7 +42,7 @@ export const createTrackingConsent = (projectId: string, config?: TrackingConsen
     try {
       storage.setItem(storageKey, value)
     } catch (err) {
-      log.warn('Failed to persist tracking consent to storage:', err)
+      log.error('Failed to persist tracking consent to storage — opt in/out will not survive page reload:', err)
     }
   }
 

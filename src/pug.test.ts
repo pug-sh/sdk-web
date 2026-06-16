@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isIdentified, markIdentified } from './profile.js'
+import { makeStorageKey } from './utils.js'
 
 const logSpies = {
   warn: vi.fn(),
@@ -483,7 +484,7 @@ describe('identify', () => {
 })
 
 describe('tracking consent persistence', () => {
-  const CONSENT_KEY = '__pug_project-id_consent__'
+  const CONSENT_KEY = makeStorageKey('project-id', 'consent')
 
   it('persists consent across a destroy / re-init cycle', async () => {
     const { destroy, getTrackingConsent, init, optOutTracking } = await importPug()
@@ -504,6 +505,27 @@ describe('tracking consent persistence', () => {
       trackingConsent: { default: 'granted', persist: true },
     })
     expect(getTrackingConsent()).toBe('denied')
+  })
+
+  it('restores granted over a denied default after opt-in and re-init', async () => {
+    const { destroy, getTrackingConsent, init, optInTracking } = await importPug()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      trackingConsent: { default: 'denied', persist: true },
+    })
+    optInTracking()
+    expect(localStorage.getItem(CONSENT_KEY)).toBe('granted')
+
+    destroy()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      trackingConsent: { default: 'denied', persist: true },
+    })
+    expect(getTrackingConsent()).toBe('granted')
   })
 
   it('does not persist consent when persist is not set', async () => {
