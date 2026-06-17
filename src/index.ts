@@ -15,6 +15,7 @@ export {
   reset,
   setAutoCapture,
   type TrackingConsent,
+  type TrackingConsentConfig,
   track,
 } from './pug.js'
 export { type PushOptions, setupNotificationClickTracking, subscribePush, unsubscribePush } from './push.js'

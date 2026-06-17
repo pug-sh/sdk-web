@@ -48,14 +48,14 @@ init('your-project-id', {
 })
 ```
 
-For consent-first flows, start with tracking consent denied. While denied, automatic listeners are not attached, and manual `track()` and `identify()` are dropped. Events are not queued for later replay. Consent state is in-memory only — on each page load, pass `defaultTrackingConsent` according to your own consent storage.
+For consent-first flows, start with tracking consent denied. While denied, automatic listeners are not attached, and manual `track()` and `identify()` are dropped (events are not queued for later replay). Set `persist: true` to remember the user's choice across reloads in `localStorage`; otherwise consent is in-memory and you pass the initial value yourself on each `init()`.
 
 ```ts
 import { init, optInTracking, optOutTracking, setAutoCapture } from 'pug-web'
 
 init('your-project-id', {
   apiKey: 'your-api-key',
-  defaultTrackingConsent: 'denied',
+  trackingConsent: { default: 'denied', persist: true },
   autoCapture: { pageView: true, click: true },
 })
 
@@ -77,7 +77,7 @@ optOutTracking()
 | `endpoint` | `string` | `https://polru.pug.sh` | Backend base URL. |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
 | `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object enables only keys set to `true`. |
-| `defaultTrackingConsent` | `'granted' \| 'denied'` | `'granted'` | Initial tracking consent. While `'denied'`, automatic listeners stay off and `track()` / `identify()` are ignored. Not persisted across reloads. |
+| `trackingConsent` | `'granted' \| 'denied' \| { default?, persist? }` | `'granted'` | Tracking consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored. Object form: `default` is the first-run seed; `persist: true` stores the choice in `localStorage` and restores it on the next `init()`. |
 
 ### Tracking consent API
 
@@ -85,7 +85,7 @@ optOutTracking()
 |---|---|
 | `optInTracking()` | Grants consent, applies the stored `autoCapture` selection, and allows `track()` / `identify()` to send. |
 | `optOutTracking()` | Revokes consent, tears down automatic listeners, and drops future `track()` / `identify()` calls. |
-| `isTrackingEnabled()` | Returns `true` when the current SDK instance can send tracking calls. Warns and returns `false` before `init()`. |
+| `isTrackingEnabled()` | Returns `true` when tracking consent is granted. Reflects consent only — independent of `dryRun`, which suppresses delivery without changing consent. Warns and returns `false` before `init()`. |
 | `getTrackingConsent()` | Returns `'granted'` or `'denied'`. Warns and returns `'denied'` before `init()`. |
 | `setAutoCapture(selection)` | Stores the desired automatic listener selection. Applies immediately when consent is granted; deferred until `optInTracking()` when denied. |
 
