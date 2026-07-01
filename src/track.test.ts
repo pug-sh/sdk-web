@@ -292,10 +292,10 @@ describe('URL sanitizer', () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('non-string'))
   })
 
-  it('warns and sends URLs unsanitized when configured with a non-function', () => {
+  it('fails closed (drops URLs, does not send raw) when configured with a non-function', () => {
     // @ts-expect-error intentionally passing a non-function
     configureUrlSanitizer('not a function')
-    expect(sanitizeUrlValue('https://x.com/raw')).toBe('https://x.com/raw')
+    expect(sanitizeUrlValue('https://x.com/raw')).toBe('')
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be a function'))
   })
 

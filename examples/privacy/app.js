@@ -43,6 +43,7 @@ const maskUrl = url => {
 // `data-pug-no-capture` (in index.html) needs no config — the click and
 // dead-click trackers consult it automatically. `sanitizeUrl` is opt-in here.
 init('privacy-example', {
+  apiKey: 'demo-api-key', // required by init(); unused here since dryRun never delivers
   dryRun: true, // demo only — never deliver
   sanitizeUrl: maskUrl,
 })
@@ -73,11 +74,20 @@ const logEl = document.getElementById('capture-log')
 const logClick = target => {
   const suppressed = isSuppressed(target)
   const text = target.innerText?.substring(0, 50) ?? '' // 50 mirrors click.ts's capture length
+
+  // Built with DOM/text APIs, never innerHTML: `text` is page-derived and must never be parsed as
+  // markup. A privacy example should model safe handling of captured content, not an XSS foot-gun.
   const entry = document.createElement('div')
   entry.className = `log-entry ${suppressed ? 'redacted' : 'captured'}`
-  entry.innerHTML = `<code>&lt;${target.tagName.toLowerCase()}&gt;</code> text → ${
-    suppressed ? '<span class="tag">"" (redacted)</span>' : `<span class="val">"${text}"</span>`
-  }`
+
+  const tag = document.createElement('code')
+  tag.textContent = `<${target.tagName.toLowerCase()}>`
+
+  const value = document.createElement('span')
+  value.className = suppressed ? 'tag' : 'val'
+  value.textContent = suppressed ? '"" (redacted)' : `"${text}"`
+
+  entry.append(tag, document.createTextNode(' text → '), value)
   logEl.prepend(entry)
 }
 

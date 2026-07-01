@@ -30,12 +30,13 @@ let sanitizerFailureWarned = false
  * Sets the URL sanitizer applied to `$url`, `$referrer`, and captured form actions before they
  * leave the device. Wired up from `init({ sanitizeUrl })`; pass `undefined` to clear it (done on
  * `destroy()`). A non-function value is a bug — the type forbids it, but a JS caller can slip one
- * in — so it is rejected with a warning and treated as "no sanitizer" rather than silently ignored.
+ * in. Because passing *something* signals intent to sanitize, we fail closed: every URL field is
+ * dropped (sanitized to `''`) rather than leaking raw URLs the caller believed were being redacted.
  */
 export const configureUrlSanitizer = (fn?: (url: string) => string): void => {
   if (fn !== undefined && typeof fn !== 'function') {
-    log.warn('sanitizeUrl must be a function; ignoring it and sending URLs unsanitized.')
-    urlSanitizer = null
+    log.warn('sanitizeUrl must be a function; dropping URL fields to avoid leaking unsanitized data.')
+    urlSanitizer = () => ''
   } else {
     urlSanitizer = fn ?? null
   }
