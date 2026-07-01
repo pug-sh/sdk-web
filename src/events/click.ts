@@ -1,4 +1,5 @@
 import type { TrackFn, WellKnownEventName } from '../track.js'
+import { isCaptureSuppressed } from '../utils.js'
 
 export const eventClick = 'click' satisfies WellKnownEventName
 
@@ -12,7 +13,8 @@ export const setupClickTracking = (track: TrackFn) => {
       class: target.getAttribute('class') ?? '',
       id: target.id,
       tag: target.tagName,
-      text: target.innerText?.substring(0, 50) ?? '',
+      // Redact text the integrator marked sensitive; keep the structural fields so the click still counts.
+      text: isCaptureSuppressed(target) ? '' : (target.innerText?.substring(0, 50) ?? ''),
       x: event.clientX,
       y: event.clientY,
     })

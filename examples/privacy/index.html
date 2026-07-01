@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pug SDK — Privacy Controls Example</title>
+    <style>
+      body {
+        font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+        max-width: 860px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        color: #1a1a1a;
+        line-height: 1.5;
+      }
+      h1 { font-size: 1.5rem; }
+      h2 { font-size: 1.15rem; margin-top: 2.5rem; }
+      .desc { color: #555; }
+      .capture-zone { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 1rem 0; }
+      button {
+        padding: 0.6rem 1rem;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+        font-size: 0.95rem;
+      }
+      .sensitive { border-color: #c0392b; background: #fdecea; }
+      .badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 4px; vertical-align: middle; }
+      .badge-safe { background: #e8f5e9; color: #2e7d32; }
+      .badge-redact { background: #fdecea; color: #c0392b; }
+      table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+      td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee; vertical-align: top; }
+      td.raw { color: #888; word-break: break-all; }
+      td.masked { color: #2e7d32; font-weight: 600; word-break: break-all; }
+      td.arrow { color: #aaa; }
+      #capture-log { margin-top: 1rem; }
+      .log-entry { padding: 0.4rem 0.6rem; border-left: 3px solid #ccc; margin-bottom: 0.4rem; font-size: 0.85rem; }
+      .log-entry.captured { border-color: #2e7d32; background: #f1f8f2; }
+      .log-entry.redacted { border-color: #c0392b; background: #fdecea; }
+      .val { color: #2e7d32; }
+      .tag { color: #c0392b; font-style: italic; }
+      code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <h1>Pug SDK — Privacy Controls</h1>
+    <p class="desc">
+      Demonstrates the two integrator-owned PII controls: the <code>data-pug-no-capture</code> attribute and the
+      <code>sanitizeUrl</code> init hook. The SDK runs in <code>dryRun</code> mode here, so nothing is sent.
+    </p>
+
+    <h2>1. <code>data-pug-no-capture</code> — redact element text</h2>
+    <p class="desc">
+      Click the buttons. Captured click text appears below. Buttons inside a marked region report
+      <em>redacted</em> text (the click still counts — only the text is dropped). The unmarked button reports its
+      real text.
+    </p>
+    <div class="capture-zone">
+      <button>Add to cart <span class="badge badge-safe">captured</span></button>
+      <button class="sensitive" data-pug-no-capture>
+        Account: jane@example.com <span class="badge badge-redact">redacted</span>
+      </button>
+      <div data-pug-no-capture>
+        <button class="sensitive">SSN 123-45-6789 <span class="badge badge-redact">redacted (ancestor)</span></button>
+      </div>
+    </div>
+    <div id="capture-log"></div>
+
+    <h2>2. <code>sanitizeUrl</code> — mask routes &amp; strip PII params</h2>
+    <p class="desc">
+      The same <code>maskUrl</code> function passed to <code>init({ sanitizeUrl })</code>, applied to sample URLs.
+      It runs on <code>$url</code> and <code>$referrer</code> on every event, and on a form's action when the form is
+      submitted.
+    </p>
+    <table>
+      <tbody id="url-table"></tbody>
+    </table>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

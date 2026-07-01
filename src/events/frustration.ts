@@ -1,4 +1,5 @@
 import type { TrackFn, WellKnownEventName } from '../track.js'
+import { isCaptureSuppressed } from '../utils.js'
 
 export const eventRageClick = 'rage_click' satisfies WellKnownEventName
 export const eventDeadClick = 'dead_click' satisfies WellKnownEventName
@@ -80,7 +81,8 @@ export const setupDeadClickTracking = (track: TrackFn) => {
 
         track(eventDeadClick, {
           element: target.tagName,
-          text: target.innerText?.substring(0, 20) ?? '',
+          // Redact text in integrator-marked regions; structural fields still send (see click.ts).
+          text: isCaptureSuppressed(target) ? '' : (target.innerText?.substring(0, 20) ?? ''),
           x: event.clientX,
           y: event.clientY,
         })

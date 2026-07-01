@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { toEvent } from './track.js'
+import { configureUrlSanitizer, sanitizeUrlValue, toEvent } from './track.js'
 
 const PROJECT_ID = 'test-project'
 const SESSION_ID = '01234567-0123-7123-8123-012345678901'
@@ -255,5 +255,84 @@ describe('Event proto integrity', () => {
     expect(ev!.distinctId).toBe(DISTINCT_ID)
     expect(ev!.customProperties.sessionId).toBeUndefined()
     expect(ev!.customProperties.distinctId).toBeUndefined()
+  })
+})
+
+describe('URL sanitizer', () => {
+  const setReferrer = (value: string) => {
+    Object.defineProperty(document, 'referrer', { configurable: true, get: () => value })
+  }
+
+  afterEach(() => {
+    configureUrlSanitizer(undefined)
+    setReferrer('') // clear any per-test referrer stub (jsdom default is '')
+  })
+
+  it('returns the raw URL when no sanitizer is configured', () => {
+    expect(sanitizeUrlValue('https://x.com/orders/12345')).toBe('https://x.com/orders/12345')
+  })
+
+  it('applies the configured sanitizer (e.g. route masking)', () => {
+    configureUrlSanitizer(url => url.replace(/\/orders\/\d+/, '/orders/:orderId'))
+    expect(sanitizeUrlValue('https://x.com/orders/12345?ref=a')).toBe('https://x.com/orders/:orderId?ref=a')
+  })
+
+  it('fails closed (empty string, not raw) when the sanitizer throws', () => {
+    configureUrlSanitizer(() => {
+      throw new Error('boom')
+    })
+    expect(sanitizeUrlValue('https://x.com/secret?email=a@b.com')).toBe('')
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('sanitizeUrl threw'), expect.anything())
+  })
+
+  it('fails closed when the sanitizer returns a non-string', () => {
+    // @ts-expect-error intentionally returning a non-string to exercise the guard
+    configureUrlSanitizer(() => 42)
+    expect(sanitizeUrlValue('https://x.com/secret')).toBe('')
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('non-string'))
+  })
+
+  it('warns and sends URLs unsanitized when configured with a non-function', () => {
+    // @ts-expect-error intentionally passing a non-function
+    configureUrlSanitizer('not a function')
+    expect(sanitizeUrlValue('https://x.com/raw')).toBe('https://x.com/raw')
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be a function'))
+  })
+
+  it('returns an empty string unchanged without invoking the sanitizer', () => {
+    const sanitizer = vi.fn((u: string) => `masked:${u}`)
+    configureUrlSanitizer(sanitizer)
+    expect(sanitizeUrlValue('')).toBe('')
+    expect(sanitizer).not.toHaveBeenCalled()
+  })
+
+  it('does not log the raw URL when the sanitizer throws with it embedded', () => {
+    configureUrlSanitizer(u => {
+      throw new Error(`bad url: ${u}`)
+    })
+    expect(sanitizeUrlValue('https://x.com/secret?email=a@b.com')).toBe('')
+    // Only the error *type* is logged — never a message that could re-surface the URL.
+    for (const call of warnSpy.mock.calls) {
+      for (const arg of call) {
+        expect(String(arg)).not.toContain('secret')
+        expect(String(arg)).not.toContain('a@b.com')
+      }
+    }
+  })
+
+  it('applies the sanitizer to $url and $referrer auto-properties', () => {
+    setReferrer('https://external.example/landing')
+    configureUrlSanitizer(() => 'REDACTED')
+    const ev = toEvent(PROJECT_ID, 'my_event', SESSION_ID, DISTINCT_ID)
+    expect(ev!.autoProperties.$url.value.value).toBe('REDACTED')
+    expect(ev!.autoProperties.$referrer.value.value).toBe('REDACTED')
+  })
+
+  it('leaves a referrer-less $referrer empty instead of fabricating a URL', () => {
+    setReferrer('')
+    configureUrlSanitizer(u => `masked:${u || 'ORIGIN'}`)
+    const ev = toEvent(PROJECT_ID, 'my_event', SESSION_ID, DISTINCT_ID)
+    // Empty referrer short-circuits — no 'masked:ORIGIN' fabricated.
+    expect(ev!.autoProperties.$referrer.value.value).toBe('')
   })
 })

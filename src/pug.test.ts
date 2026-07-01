@@ -553,3 +553,30 @@ describe('tracking consent persistence', () => {
     expect(localStorage.getItem(CONSENT_KEY)).toBe('denied')
   })
 })
+
+describe('url sanitizer wiring', () => {
+  type SentEvent = { autoProperties: Record<string, { value: { value: unknown } }> }
+
+  it('applies init({ sanitizeUrl }) to outgoing event URLs', async () => {
+    const { init, track } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, sanitizeUrl: () => 'REDACTED' })
+    track('signup', { plan: 'pro' })
+
+    expect(transportSpies.send).toHaveBeenCalledOnce()
+    const event = transportSpies.send.mock.calls[0][0] as SentEvent
+    expect(event.autoProperties.$url.value.value).toBe('REDACTED')
+  })
+
+  it('sends raw URLs after a destroy / re-init without a sanitizer', async () => {
+    const { destroy, init, track } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, sanitizeUrl: () => 'REDACTED' })
+    destroy()
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+    track('signup', { plan: 'pro' })
+
+    const event = transportSpies.send.mock.calls.at(-1)?.[0] as SentEvent
+    expect(event.autoProperties.$url.value.value).not.toBe('REDACTED')
+  })
+})

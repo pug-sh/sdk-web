@@ -22,7 +22,7 @@ import {
   resolveDistinctId,
 } from './profile.js'
 import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
-import { type JsonValue, type TrackFn, type TrackOptions, toEvent } from './track.js'
+import { configureUrlSanitizer, type JsonValue, type TrackFn, type TrackOptions, toEvent } from './track.js'
 import {
   createTrackingConsent,
   type TrackingConsent,
@@ -44,6 +44,15 @@ export interface InitOptions {
   readonly session?: SessionConfig
   readonly autoCapture?: AutoCaptureConfig
   readonly trackingConsent?: TrackingConsent | TrackingConsentConfig
+  /**
+   * Transforms `$url` and `$referrer` (on every event) and a form's `action` (on submit) before
+   * they leave the device — e.g. to strip PII-bearing query params or mask path segments
+   * (`/orders/12345` → `/orders/:orderId`). Called synchronously on the `track()` hot path, so keep
+   * it cheap and side-effect-free. If it throws or returns a non-string the URL is dropped to an
+   * empty string rather than sent raw. Note: this covers URL fields only — `$utm*` params are parsed
+   * from the raw query string and are not routed through it, so avoid putting PII in UTM params.
+   */
+  readonly sanitizeUrl?: (url: string) => string
 }
 
 export type { AutoCaptureConfig, AutoCaptureSelection, TrackingConsent, TrackingConsentConfig }
@@ -114,6 +123,8 @@ export const init = (projectId: string, options: InitOptions) => {
   } catch (err) {
     log.warn('Failed to initialize user agent data:', err)
   }
+
+  configureUrlSanitizer(options.sanitizeUrl)
 
   const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
   const trackingConsent = createTrackingConsent(projectId, options.trackingConsent)
@@ -210,6 +221,7 @@ export const destroy = () => {
 
   destroySession()
   destroyProfile()
+  configureUrlSanitizer(undefined)
   profilesClient = null
 
   state = null

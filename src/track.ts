@@ -20,6 +20,68 @@ export type {
 
 const validator = createValidator()
 
+let urlSanitizer: ((url: string) => string) | null = null
+
+// Sanitizer failures are logged once per init() (the flag resets in configureUrlSanitizer) so a
+// sanitizer that fails on every event can't bury the "you're losing all your URLs" signal in spam.
+let sanitizerFailureWarned = false
+
+/**
+ * Sets the URL sanitizer applied to `$url`, `$referrer`, and captured form actions before they
+ * leave the device. Wired up from `init({ sanitizeUrl })`; pass `undefined` to clear it (done on
+ * `destroy()`). A non-function value is a bug — the type forbids it, but a JS caller can slip one
+ * in — so it is rejected with a warning and treated as "no sanitizer" rather than silently ignored.
+ */
+export const configureUrlSanitizer = (fn?: (url: string) => string): void => {
+  if (fn !== undefined && typeof fn !== 'function') {
+    log.warn('sanitizeUrl must be a function; ignoring it and sending URLs unsanitized.')
+    urlSanitizer = null
+  } else {
+    urlSanitizer = fn ?? null
+  }
+  sanitizerFailureWarned = false
+}
+
+/**
+ * Runs `url` through the configured sanitizer, returning the raw URL when none is set. An empty
+ * string is returned as-is without calling the sanitizer: there is nothing to redact, and handing
+ * `''` to a base-relative sanitizer would let it fabricate a URL (e.g. resolve to the page origin),
+ * corrupting a referrer-less `$referrer`.
+ *
+ * Fails closed: if the sanitizer throws or returns a non-string, the URL is dropped to an empty
+ * string rather than the raw value — a buggy sanitizer must not leak the PII it was meant to strip.
+ * Never throws, so it is safe to call from the always-safe `track()` path.
+ */
+export const sanitizeUrlValue = (url: string): string => {
+  if (!url || !urlSanitizer) {
+    return url
+  }
+  try {
+    const result = urlSanitizer(url)
+    if (typeof result !== 'string') {
+      warnSanitizerFailure('sanitizeUrl returned a non-string value; dropping URL to avoid leaking unsanitized data.')
+      return ''
+    }
+    return result
+  } catch (err) {
+    // Log the error type only, never the error itself — a sanitizer that interpolates the URL into
+    // its message would otherwise re-surface the PII it was meant to strip into client-side logs.
+    warnSanitizerFailure(
+      'sanitizeUrl threw; dropping URL to avoid leaking unsanitized data. Error type:',
+      err instanceof Error ? err.name : typeof err,
+    )
+    return ''
+  }
+}
+
+const warnSanitizerFailure = (msg: string, ...args: unknown[]): void => {
+  if (sanitizerFailureWarned) {
+    return
+  }
+  sanitizerFailureWarned = true
+  log.warn(msg, ...args)
+}
+
 const isWellKnownEvent = (kind: string): kind is WellKnownEventName => kind in wellKnownSchemas
 
 // Truncate by UTF-8 byte length to stay under proto's `string.max_len = 1024`.
@@ -299,8 +361,8 @@ export const toEvent = (
       eventId: uuidv7(),
       autoProperties: {
         $projectId: makeStringValue(projectId),
-        $url: makeStringValue(window.location.href),
-        $referrer: makeStringValue(document.referrer),
+        $url: makeStringValue(sanitizeUrlValue(window.location.href)),
+        $referrer: makeStringValue(sanitizeUrlValue(document.referrer)),
         $locale: makeStringValue(navigator.language),
         $screenWidth: makeStringValue(String(window.screen.width)),
         $screenHeight: makeStringValue(String(window.screen.height)),

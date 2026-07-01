@@ -77,6 +77,7 @@ optOutTracking()
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
 | `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object enables only keys set to `true`. |
 | `trackingConsent` | `'granted' \| 'denied' \| { default?, persist? }` | `'granted'` | Tracking consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored. Object form: `default` is the first-run seed; `persist: true` stores the choice in `localStorage` and restores it on the next `init()`. |
+| `sanitizeUrl` | `(url: string) => string` | — | Redacts URLs before they leave the device — rewrites `$url`, `$referrer`, and captured form actions to mask routes or strip PII query params. Fails closed: throwing or returning a non-string drops the URL. See [Privacy controls](#privacy-controls). |
 
 ### Tracking consent API
 
@@ -87,6 +88,49 @@ optOutTracking()
 | `isTrackingEnabled()` | Returns `true` when tracking consent is granted. Reflects consent only — independent of `dryRun`, which suppresses delivery without changing consent. Warns and returns `false` before `init()`. |
 | `getTrackingConsent()` | Returns `'granted'` or `'denied'`. Warns and returns `'denied'` before `init()`. |
 | `setAutoCapture(selection)` | Stores the desired automatic listener selection. Applies immediately when consent is granted; deferred until `optInTracking()` when denied. |
+
+### Privacy controls
+
+Two device-side controls keep PII out of captured events. Both run in the browser before anything is sent, so raw values never leave the device.
+
+#### `data-pug-no-capture` — don't capture element text
+
+Add the `data-pug-no-capture` attribute to any element whose text should not be tracked. The click and dead-click trackers blank the captured `text` for that element and everything inside it, while still recording the structural fields (`tag`, `id`, `class`, coordinates) so the interaction is still counted.
+
+```html
+<!-- The click still counts, but "jane@example.com" is never captured. -->
+<button data-pug-no-capture>Account: jane@example.com</button>
+
+<!-- On a container, it covers every element inside. -->
+<div data-pug-no-capture>
+  <span>Card ending 4242</span>
+  <button>Pay $49.00</button>
+</div>
+```
+
+Put the attribute on an **ancestor of every element that can be clicked** — a marker on a sensitive leaf won't protect it if a surrounding element is the click target. Only free text is redacted; `id` and `class` are still sent, so keep PII out of those as well.
+
+#### `sanitizeUrl` — mask routes and strip PII from URLs
+
+Pass a `sanitizeUrl` function to `init()` to rewrite `$url`, `$referrer`, and captured form actions before they are sent. The SDK can't know your routes, so the rules live in your app:
+
+```ts
+init('your-project-id', {
+  apiKey: 'your-api-key',
+  sanitizeUrl: (url) => {
+    const u = new URL(url, window.location.origin)
+    u.pathname = u.pathname.replace(/\/orders\/\d+/, '/orders/:orderId') // mask IDs
+    u.searchParams.delete('email') // strip PII params
+    return u.toString()
+  },
+})
+```
+
+- Runs synchronously on every event — keep it cheap and side-effect-free.
+- **Fails closed:** if it throws or returns a non-string, the URL is dropped to an empty string rather than sent raw, so a bug in your sanitizer can't leak the PII it was meant to strip.
+- Covers URL fields only. `$utm*` params are parsed from the raw query string separately, so don't put PII in UTM parameters.
+
+A runnable demo of both controls lives in [`examples/privacy/`](./examples/privacy/).
 
 ### API
 
