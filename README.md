@@ -73,7 +73,7 @@ optOutTracking()
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `apiKey` | `string` | — | **Required.** API key. |
-| `endpoint` | `string` | `https://api.pug.sh` | Backend base URL. |
+| `endpoint` | `string` | `https://api.pugs.dev` | Backend base URL. |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
 | `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object enables only keys set to `true`. |
 | `trackingConsent` | `'granted' \| 'denied' \| { default?, persist? }` | `'granted'` | Tracking consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored. Object form: `default` is the first-run seed; `persist: true` stores the choice in `localStorage` and restores it on the next `init()`. |
