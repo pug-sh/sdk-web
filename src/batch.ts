@@ -1,4 +1,4 @@
-import { type Event, EventSchema } from '@buf/fivebits_pug.bufbuild_es/sdk/events/v1/events_pb.js'
+import { type Event, EventSchema } from '@buf/pugsh_pug.bufbuild_es/sdk/events/v1/events_pb.js'
 import { fromJson, JsonValue, toJson } from '@bufbuild/protobuf'
 import { ConnectError } from '@connectrpc/connect'
 import { log } from './logger.js'

@@ -1,4 +1,4 @@
-import { IdentifyRequestSchema, ProfilesSDKService } from '@buf/fivebits_pug.bufbuild_es/sdk/profiles/v1/profiles_pb.js'
+import { IdentifyRequestSchema, ProfilesSDKService } from '@buf/pugsh_pug.bufbuild_es/sdk/profiles/v1/profiles_pb.js'
 import { create } from '@bufbuild/protobuf'
 import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
