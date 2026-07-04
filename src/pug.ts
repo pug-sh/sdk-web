@@ -10,8 +10,10 @@ import {
   createAutoCaptureController,
 } from './auto-capture.js'
 import { type BatchConfig, createBatchedTransport } from './batch.js'
+import { type CrossSubdomainConfig, createCookieLayer } from './cookie.js'
 import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
+import { createPersistentStore, type PersistentStore } from './persistence.js'
 import {
   clearProfile,
   configureProfile,
@@ -45,6 +47,20 @@ export interface InitOptions {
   readonly autoCapture?: AutoCaptureConfig
   readonly trackingConsent?: TrackingConsent | TrackingConsentConfig
   /**
+   * Shares identity (anonymous ID, external ID, session state, persisted consent) across subdomains
+   * of the same site via a first-party cookie on the registrable domain (e.g. `.example.com`),
+   * discovered with a write-probe. Defaults to `true`; automatically degrades to a host-only cookie
+   * on localhost and IP hosts, and to localStorage
+   * when cookies are blocked. Cookies set from an HTTPS page carry the `Secure` attribute, so
+   * identity is shared only among HTTPS subdomains — an HTTP subdomain cannot read them. Set
+   * `false` for origin-scoped localStorage only, or `{ domain }` to
+   * pin an explicit cookie domain (falls back to host-only with a warning when the browser
+   * rejects it or it does not cover the current host). With cross-subdomain sessions, the
+   * "rotate when all tabs closed" heuristic is disabled —
+   * sessions end by idle/max timeout only, since tab liveness is unknowable across subdomains.
+   */
+  readonly crossSubdomainTracking?: CrossSubdomainConfig
+  /**
    * Transforms `$url` and `$referrer` (on every event) and a form's `action` (on submit) before
    * they leave the device — e.g. to strip PII-bearing query params or mask path segments
    * (`/orders/12345` → `/orders/:orderId`). Called synchronously on the `track()` hot path, so keep
@@ -55,7 +71,7 @@ export interface InitOptions {
   readonly sanitizeUrl?: (url: string) => string
 }
 
-export type { AutoCaptureConfig, AutoCaptureSelection, TrackingConsent, TrackingConsentConfig }
+export type { AutoCaptureConfig, AutoCaptureSelection, CrossSubdomainConfig, TrackingConsent, TrackingConsentConfig }
 
 interface PugState {
   readonly config: PugConfig
@@ -106,14 +122,21 @@ export const init = (projectId: string, options: InitOptions) => {
 
   const config: PugConfig = { endpoint: options.endpoint || DEFAULT_ENDPOINT, projectId }
 
+  let store: PersistentStore | null = null
   try {
-    configureSession(projectId, options.session)
+    store = createPersistentStore(createCookieLayer(options.crossSubdomainTracking ?? true))
+  } catch (err) {
+    log.warn('Failed to initialize persistence:', err)
+  }
+
+  try {
+    configureSession(projectId, options.session, store)
   } catch (err) {
     log.warn('Failed to configure session tracking:', err)
   }
 
   try {
-    configureProfile(projectId)
+    configureProfile(projectId, store)
   } catch (err) {
     log.warn('Failed to configure profile:', err)
   }
@@ -127,7 +150,7 @@ export const init = (projectId: string, options: InitOptions) => {
   configureUrlSanitizer(options.sanitizeUrl)
 
   const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
-  const trackingConsent = createTrackingConsent(projectId, options.trackingConsent)
+  const trackingConsent = createTrackingConsent(projectId, options.trackingConsent, store)
   const autoCapture = createAutoCaptureController(track, trackingConsent.isGranted)
 
   state = {

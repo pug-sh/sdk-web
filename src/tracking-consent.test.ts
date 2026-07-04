@@ -99,7 +99,7 @@ describe('createTrackingConsent', () => {
     const createTrackingConsent = await loadFactory()
     const consent = createTrackingConsent('proj', { default: 'denied', persist: true })
     expect(consent.getConsent()).toBe('denied')
-    expect(logSpies.warn).toHaveBeenCalledWith('Failed to read tracking consent from storage:', expect.any(Error))
+    expect(logSpies.warn).toHaveBeenCalledWith(`Failed to read "${KEY}" from localStorage:`, expect.any(Error))
   })
 
   it('does not throw and logs an error when persisting throws', async () => {
@@ -111,8 +111,81 @@ describe('createTrackingConsent', () => {
     expect(() => consent.optOut()).not.toThrow()
     expect(consent.getConsent()).toBe('denied')
     expect(logSpies.error).toHaveBeenCalledWith(
-      'Failed to persist tracking consent to storage — opt in/out will not survive page reload:',
-      expect.any(Error),
+      'Failed to persist tracking consent to storage — opt in/out will not survive page reload.',
     )
+  })
+})
+
+describe('createTrackingConsent with a provided store', () => {
+  const createFakeStore = () => {
+    const map = new Map<string, string>()
+    const writes: string[] = []
+    return {
+      map,
+      writes,
+      crossSubdomain: true,
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        map.set(key, value)
+        writes.push(value)
+        return true
+      },
+      removeItem: (key: string) => {
+        map.delete(key)
+      },
+    }
+  }
+
+  it('writes opt in/out through the provided store when persist is true', async () => {
+    const createTrackingConsent = await loadFactory()
+    const store = createFakeStore()
+    const consent = createTrackingConsent('proj', { persist: true }, store)
+    consent.optOut()
+    expect(store.map.get(KEY)).toBe('denied')
+    consent.optIn()
+    expect(store.map.get(KEY)).toBe('granted')
+  })
+
+  it('restores consent from the provided store and refreshes it', async () => {
+    const createTrackingConsent = await loadFactory()
+    const store = createFakeStore()
+    store.map.set(KEY, 'denied')
+    const consent = createTrackingConsent('proj', { default: 'granted', persist: true }, store)
+    expect(consent.getConsent()).toBe('denied')
+    // Restore re-writes the value so a cookie-backed store refreshes its expiry.
+    expect(store.writes).toContain('denied')
+  })
+
+  it('ignores the provided store when persist is false', async () => {
+    const createTrackingConsent = await loadFactory()
+    const store = createFakeStore()
+    const consent = createTrackingConsent('proj', 'granted', store)
+    consent.optOut()
+    expect(store.map.size).toBe(0)
+  })
+
+  it('logs an error when the store reports the opt in/out write did not persist', async () => {
+    // A cross-subdomain store returns false when the cookie write fails — the choice will not
+    // survive a reload or reach sibling subdomains, so the user-facing action must say so.
+    const createTrackingConsent = await loadFactory()
+    const store = createFakeStore()
+    store.setItem = () => false
+    const consent = createTrackingConsent('proj', { persist: true }, store)
+    consent.optOut()
+    expect(consent.getConsent()).toBe('denied')
+    expect(logSpies.error).toHaveBeenCalledWith(
+      'Failed to persist tracking consent to storage — opt in/out will not survive page reload.',
+    )
+  })
+
+  it('warns and stays in-memory when persist is true but the provided store is null', async () => {
+    const createTrackingConsent = await loadFactory()
+    const consent = createTrackingConsent('proj', { default: 'denied', persist: true }, null)
+    expect(logSpies.warn).toHaveBeenCalledWith(
+      'Storage unavailable; tracking consent will not persist across page loads.',
+    )
+    consent.optIn()
+    expect(consent.getConsent()).toBe('granted')
+    expect(localStorage.getItem(KEY)).toBeNull()
   })
 })

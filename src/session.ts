@@ -1,5 +1,6 @@
 import { uuidv7 } from 'uuidv7'
 import { log } from './logger.js'
+import { type PersistentStore, resolveStore } from './persistence.js'
 import { isStorageAvailable, makeStorageKey } from './utils.js'
 
 interface StoredState {
@@ -22,25 +23,38 @@ const DEFAULT_CONFIG = {
 
 const HEARTBEAT_INTERVAL_MS = 10_000
 
+// In cross-subdomain mode the session state rides a shared cookie the browser attaches to every
+// request, so persisting lastActivityTime on each event would rewrite that cookie constantly.
+// Throttle the activity-time refresh to at most once per this interval; the in-memory state stays
+// exact and session-id changes (rotate/resetIdentity) still persist immediately, so only the
+// persisted lastActivityTime lags — bounded by this interval, negligible against the idle timeout.
+const ACTIVITY_PERSIST_THROTTLE_MS = 10_000
+
 let config = { ...DEFAULT_CONFIG }
 
 let state: StoredState | null = null
-let storage: Storage | null = null
+let store: PersistentStore | null = null
+// Tab registry stays on raw localStorage: tab liveness is origin-local bookkeeping and must never
+// ride a cookie (chatty writes on a header-bearing channel, and meaningless on other subdomains).
+let tabsStorage: Storage | null = null
 let tabsKey = ''
 let tabId = ''
 let lastHeartbeat = 0
+let lastPersistMs = 0
 let fallbackSessionId = ''
 let onPageHide: (() => void) | null = null
 
-export const configureSession = (projectId: string, sessionConfig?: SessionConfig): void => {
-  storage = isStorageAvailable() ? localStorage : null
-  if (!storage) {
+export const configureSession = (
+  projectId: string,
+  sessionConfig?: SessionConfig,
+  persistentStore?: PersistentStore | null,
+): void => {
+  store = resolveStore(persistentStore)
+  if (!store) {
     log.warn('Storage unavailable; session state will not persist.')
   }
   fallbackSessionId = uuidv7()
   config.storageKey = makeStorageKey(projectId, 'session')
-  tabsKey = makeStorageKey(projectId, 'tabs')
-  tabId = Math.random().toString(36).slice(2)
 
   if (sessionConfig?.idleTimeoutMinutes != null) {
     if (sessionConfig.idleTimeoutMinutes > 0) {
@@ -57,15 +71,26 @@ export const configureSession = (projectId: string, sessionConfig?: SessionConfi
     }
   }
 
+  // With a cross-subdomain session, tab liveness (localStorage + pagehide) is the wrong signal:
+  // an init on one subdomain with no live tabs there would rotate a session still active on a
+  // sibling subdomain. In that mode sessions end by idle/max timeout only.
+  if (store?.crossSubdomain) {
+    return
+  }
+
+  tabsStorage = isStorageAvailable() ? localStorage : null
+  tabsKey = makeStorageKey(projectId, 'tabs')
+  tabId = Math.random().toString(36).slice(2)
+
   // Track active tabs via per-tab timestamps in localStorage.
   // On init, prune entries older than idleTimeoutMs. If none survive,
   // all tabs were closed — rotate session. Self-heals from crashed
   // tabs since stale entries are pruned automatically.
-  if (storage) {
+  if (tabsStorage) {
     try {
       let tabs: Record<string, number> = {}
       try {
-        tabs = JSON.parse(storage.getItem(tabsKey) ?? '{}')
+        tabs = JSON.parse(tabsStorage.getItem(tabsKey) ?? '{}')
       } catch {
         // corrupted — start fresh
       }
@@ -81,7 +106,7 @@ export const configureSession = (projectId: string, sessionConfig?: SessionConfi
       const allTabsWereClosed = Object.keys(alive).length === 0
       alive[tabId] = now
       lastHeartbeat = now
-      storage.setItem(tabsKey, JSON.stringify(alive))
+      tabsStorage.setItem(tabsKey, JSON.stringify(alive))
 
       if (allTabsWereClosed) {
         const existing = read()
@@ -92,12 +117,12 @@ export const configureSession = (projectId: string, sessionConfig?: SessionConfi
 
       onPageHide = () => {
         try {
-          if (!storage) {
+          if (!tabsStorage) {
             return
           }
-          const current: Record<string, number> = JSON.parse(storage.getItem(tabsKey) ?? '{}')
+          const current: Record<string, number> = JSON.parse(tabsStorage.getItem(tabsKey) ?? '{}')
           delete current[tabId]
-          storage.setItem(tabsKey, JSON.stringify(current))
+          tabsStorage.setItem(tabsKey, JSON.stringify(current))
         } catch {
           // storage may be unavailable during unload
         }
@@ -110,11 +135,11 @@ export const configureSession = (projectId: string, sessionConfig?: SessionConfi
 }
 
 const read = (): StoredState | null => {
-  if (!storage) {
+  if (!store) {
     return null
   }
   try {
-    const parsed = JSON.parse(storage.getItem(config.storageKey) ?? 'null')
+    const parsed = JSON.parse(store.getItem(config.storageKey) ?? 'null')
     if (
       parsed &&
       typeof parsed.sessionId === 'string' &&
@@ -131,21 +156,26 @@ const read = (): StoredState | null => {
 }
 
 const write = (s: StoredState): void => {
-  if (!storage) {
+  if (!store) {
     return
   }
-  try {
-    storage.setItem(config.storageKey, JSON.stringify(s))
-    // Debounced heartbeat — only update if enough time has passed.
-    const now = Date.now()
-    if (tabId && tabsKey && now - lastHeartbeat > HEARTBEAT_INTERVAL_MS) {
-      const tabs: Record<string, number> = JSON.parse(storage.getItem(tabsKey) ?? '{}')
-      tabs[tabId] = now
-      storage.setItem(tabsKey, JSON.stringify(tabs))
-      lastHeartbeat = now
+  // Failures are logged inside the store; this runs frequently, so a second warn here would only
+  // duplicate the noise.
+  store.setItem(config.storageKey, JSON.stringify(s))
+  lastPersistMs = Date.now()
+  // Debounced heartbeat — only update if enough time has passed.
+  if (tabsStorage && tabId && tabsKey) {
+    try {
+      const now = Date.now()
+      if (now - lastHeartbeat > HEARTBEAT_INTERVAL_MS) {
+        const tabs: Record<string, number> = JSON.parse(tabsStorage.getItem(tabsKey) ?? '{}')
+        tabs[tabId] = now
+        tabsStorage.setItem(tabsKey, JSON.stringify(tabs))
+        lastHeartbeat = now
+      }
+    } catch (err) {
+      log.warn('Failed to update tab registry:', err)
     }
-  } catch (err) {
-    log.warn('Failed to persist state to storage:', err)
   }
 }
 
@@ -181,7 +211,12 @@ export const resolveSessionId = (): string => {
 
     const next = { ...state, lastActivityTime: Date.now() }
     state = next
-    write(next)
+    // Origin-scoped stores persist every event (localStorage is cheap); cross-subdomain stores
+    // throttle so the shared cookie is not rewritten on every event. A missing or expired session
+    // was already persisted by rotate() above, so new session ids are never delayed.
+    if (!store?.crossSubdomain || next.lastActivityTime - lastPersistMs >= ACTIVITY_PERSIST_THROTTLE_MS) {
+      write(next)
+    }
     return next.sessionId
   } catch (err) {
     log.warn('Failed to resolve session ID:', err)
@@ -203,25 +238,27 @@ export const destroySession = (): void => {
     onPageHide = null
   }
   try {
-    storage?.removeItem(config.storageKey)
+    store?.removeItem(config.storageKey)
     // Only remove this tab's entry, not the entire tabs registry.
-    if (storage && tabsKey && tabId) {
-      const tabs: Record<string, number> = JSON.parse(storage.getItem(tabsKey) ?? '{}')
+    if (tabsStorage && tabsKey && tabId) {
+      const tabs: Record<string, number> = JSON.parse(tabsStorage.getItem(tabsKey) ?? '{}')
       delete tabs[tabId]
       if (Object.keys(tabs).length === 0) {
-        storage.removeItem(tabsKey)
+        tabsStorage.removeItem(tabsKey)
       } else {
-        storage.setItem(tabsKey, JSON.stringify(tabs))
+        tabsStorage.setItem(tabsKey, JSON.stringify(tabs))
       }
     }
   } catch (err) {
     log.warn('Failed to remove session state from storage:', err)
   }
   state = null
-  storage = null
+  store = null
+  tabsStorage = null
   tabsKey = ''
   tabId = ''
   lastHeartbeat = 0
+  lastPersistMs = 0
   fallbackSessionId = ''
   config = { ...DEFAULT_CONFIG }
 }

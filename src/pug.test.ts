@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { isIdentified, markIdentified } from './profile.js'
+import { configureProfile, isIdentified, markIdentified } from './profile.js'
+import { configureSession } from './session.js'
 import { makeStorageKey } from './utils.js'
 
 const logSpies = {
@@ -578,5 +579,61 @@ describe('url sanitizer wiring', () => {
 
     const event = transportSpies.send.mock.calls.at(-1)?.[0] as SentEvent
     expect(event.autoProperties.$url.value.value).not.toBe('REDACTED')
+  })
+})
+
+describe('crossSubdomainTracking wiring', () => {
+  const CONSENT_KEY = makeStorageKey('project-id', 'consent')
+
+  const capturedStore = () => {
+    const store = vi.mocked(configureSession).mock.calls[0]?.[2]
+    if (!store) {
+      throw new Error('configureSession did not receive a persistent store')
+    }
+    return store
+  }
+
+  it('defaults to on and threads the same store into session and profile', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+
+    const store = capturedStore()
+    expect(vi.mocked(configureProfile)).toHaveBeenCalledWith('project-id', store)
+    // The default builds a cookie layer (host-only here on localhost): writes reach document.cookie.
+    store.setItem('__pug_wiring_probe__', 'v')
+    expect(document.cookie).toContain('__pug_wiring_probe__=v')
+  })
+
+  it('threads the store into consent so a persisted opt-out rides the cookie', async () => {
+    const { init, optOutTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, trackingConsent: { persist: true } })
+    optOutTracking()
+
+    expect(document.cookie).toContain(`${CONSENT_KEY}=denied`)
+  })
+
+  it('crossSubdomainTracking: false builds a store without a cookie layer', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, crossSubdomainTracking: false })
+
+    const store = capturedStore()
+    store.setItem('__pug_wiring_probe__', 'v')
+    expect(document.cookie).not.toContain('__pug_wiring_probe__')
+    expect(localStorage.getItem('__pug_wiring_probe__')).toBe('v')
+  })
+
+  it('passes an explicit { domain } through to the cookie layer', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, crossSubdomainTracking: { domain: 'example.com' } })
+
+    // localhost is not covered by example.com — the layer warns and falls back to host-only,
+    // proving the option reached the cookie layer intact.
+    expect(logSpies.warn).toHaveBeenCalledWith(
+      'crossSubdomainTracking domain "example.com" is not usable on "localhost"; using a host-only cookie instead.',
+    )
   })
 })
