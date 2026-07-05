@@ -15,7 +15,12 @@ export interface PersistentStore {
    * suffices.
    */
   setItem(key: string, value: string): boolean
-  removeItem(key: string): void
+  /**
+   * Returns true when a subsequent getItem would return null — the value is gone from every layer
+   * reads consult (the cookie in cross-subdomain mode; both layers otherwise). Lets opt-out/reset
+   * surface a privacy teardown that did not land.
+   */
+  removeItem(key: string): boolean
   /** True when values are shared across subdomains via a domain-scoped cookie. */
   readonly crossSubdomain: boolean
 }
@@ -27,8 +32,8 @@ export const createPersistentStore = (cookies: CookieLayer | null): PersistentSt
     return null
   }
   const crossSubdomain = cookies?.crossSubdomain ?? false
-  // One-time-per-key throttle so a cookie write that keeps failing (e.g. session state written on
-  // every event) does not spam the console.
+  // One-time-per-key throttle so a repeatedly-failing cross-subdomain cookie write (e.g. the
+  // session-state write re-attempted on activity) does not spam the console over a long session.
   const warnedKeys = new Set<string>()
   return {
     crossSubdomain,
@@ -92,20 +97,29 @@ export const createPersistentStore = (cookies: CookieLayer | null): PersistentSt
       return crossSubdomain ? cookiePersisted : cookiePersisted || localPersisted
     },
     removeItem: key => {
+      // Absent layers can't hold a stale value, so they default to "removed".
+      let cookieRemoved = true
       if (cookies) {
         try {
-          cookies.remove(key)
+          cookieRemoved = cookies.remove(key)
         } catch (err) {
+          cookieRemoved = false
           log.warn(`Failed to remove "${key}" from cookies:`, err)
         }
       }
+      let localRemoved = true
       if (local) {
         try {
           local.removeItem(key)
         } catch (err) {
+          localRemoved = false
           log.warn(`Failed to remove "${key}" from localStorage:`, err)
         }
       }
+      // A subsequent getItem returns null only when every layer it would consult is cleared: the
+      // cookie is authoritative in cross-subdomain mode; otherwise reads prefer the cookie and fall
+      // back to localStorage, so both must be gone.
+      return crossSubdomain ? cookieRemoved : cookieRemoved && localRemoved
     },
   }
 }

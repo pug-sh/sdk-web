@@ -149,20 +149,27 @@ const read = (): StoredState | null => {
     ) {
       return parsed as StoredState
     }
-  } catch (err) {
-    log.warn('Failed to read session state (starting fresh):', err)
+  } catch {
+    // Omit the parse error: its message can echo a fragment of the stored session JSON.
+    log.warn('Failed to read session state; starting fresh.')
   }
   return null
 }
 
-const write = (s: StoredState): void => {
+const write = (s: StoredState): boolean => {
   if (!store) {
-    return
+    return false
   }
-  // Failures are logged inside the store; this runs frequently, so a second warn here would only
-  // duplicate the noise.
-  store.setItem(config.storageKey, JSON.stringify(s))
-  lastPersistMs = Date.now()
+  // setItem reports whether the value will survive a page load (in cross-subdomain mode that means
+  // the cookie write landed). Advance the throttle clock only on a real persist, so a dropped write
+  // isn't mistaken for a fresh one: it leaves lastPersistMs stale, and the next event re-attempts
+  // the write instead of being suppressed for the throttle window. Underlying storage failures are
+  // already logged by the store (once per key for the cross-subdomain cookie), so this frequent
+  // path stays quiet; the deliberate rotate()/resetIdentity() callers surface their own failure below.
+  const persisted = store.setItem(config.storageKey, JSON.stringify(s))
+  if (persisted) {
+    lastPersistMs = Date.now()
+  }
   // Debounced heartbeat — only update if enough time has passed.
   if (tabsStorage && tabId && tabsKey) {
     try {
@@ -177,6 +184,7 @@ const write = (s: StoredState): void => {
       log.warn('Failed to update tab registry:', err)
     }
   }
+  return persisted
 }
 
 const isExpired = (s: StoredState): boolean => {
@@ -194,7 +202,12 @@ export const rotate = (): void => {
   const deviceId = state?.deviceId ?? read()?.deviceId ?? uuidv7()
   const next: StoredState = { sessionId: uuidv7(), startTime: now, lastActivityTime: now, deviceId }
   state = next
-  write(next)
+  // A genuine persist failure (store present but the write did not land) means the new session id
+  // will not survive a page load — surface it. `store &&` skips the in-memory-only case, which
+  // configureSession already warned about.
+  if (store && !write(next)) {
+    log.warn('Failed to persist the rotated session; the new session id may not survive a page load.')
+  }
 }
 
 export const resolveSessionId = (): string => {
@@ -229,7 +242,26 @@ export const resetIdentity = (): void => {
   const now = Date.now()
   const next: StoredState = { sessionId: uuidv7(), startTime: now, lastActivityTime: now, deviceId: uuidv7() }
   state = next
-  write(next)
+  // Logout/privacy-critical: a failed persist means the previous session and device id could
+  // resurface on the next page load, so this is an error rather than a warning.
+  if (store && !write(next)) {
+    log.error('Failed to persist the identity reset; the previous session may resurface on the next page load.')
+  }
+}
+
+// Clears the persisted session and in-memory state while leaving the module configured (store,
+// keys, timeouts intact), so a later resolveSessionId() lazily starts a fresh session. Used by
+// opt-out to drop identifiers without the full teardown destroySession() performs. In
+// cross-subdomain mode this removes the shared cookie, so the opt-out propagates to sibling
+// subdomains.
+export const clearSession = (): void => {
+  // reset()/opt-out teardown: a failed removal in cross-subdomain mode means the shared session
+  // cookie survived and would resurface on the next read, so surface it at error level.
+  if (store && !store.removeItem(config.storageKey)) {
+    log.error('Failed to clear the session from storage — it may resurface on the next page load.')
+  }
+  state = null
+  lastPersistMs = 0
 }
 
 export const destroySession = (): void => {
@@ -237,9 +269,12 @@ export const destroySession = (): void => {
     window.removeEventListener('pagehide', onPageHide)
     onPageHide = null
   }
+  // Teardown, not logout: leave persisted session state in place so a later init() resumes it. In
+  // cross-subdomain mode the session lives in a cookie shared by every sibling subdomain, so
+  // removing it here would end sessions site-wide from an unrelated page's teardown. reset() (which
+  // rotates to a fresh identity) and clearSession() (which removes it) are the deliberate discards.
+  // Only this tab's origin-local registry entry is dropped, since this tab really is going away.
   try {
-    store?.removeItem(config.storageKey)
-    // Only remove this tab's entry, not the entire tabs registry.
     if (tabsStorage && tabsKey && tabId) {
       const tabs: Record<string, number> = JSON.parse(tabsStorage.getItem(tabsKey) ?? '{}')
       delete tabs[tabId]
@@ -250,7 +285,7 @@ export const destroySession = (): void => {
       }
     }
   } catch (err) {
-    log.warn('Failed to remove session state from storage:', err)
+    log.warn('Failed to update tab registry during destroy:', err)
   }
   state = null
   store = null

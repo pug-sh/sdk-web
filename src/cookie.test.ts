@@ -198,6 +198,52 @@ describe('createCookieLayer', () => {
     expect(www?.get(KEY)).toBeNull()
   })
 
+  it('reports removal success via the return value', () => {
+    const layer = createCookieLayer(true, docAt('https://app.example.com/'))
+    layer?.set(KEY, 'v')
+    expect(layer?.remove(KEY)).toBe(true)
+    expect(layer?.get(KEY)).toBeNull()
+  })
+
+  it('clears a host-only twin on remove so it cannot be re-promoted later', () => {
+    const jar = new CookieJar()
+    const doc = docAt('https://app.example.com/', jar)
+    // A legacy host-only twin coexisting with the shared cookie (older SDK / a prior host-only run).
+    doc.cookie = `${KEY}=anon-legacy; path=/`
+    const sibling = createCookieLayer(true, docAt('https://www.example.com/', jar))
+    sibling?.set(KEY, 'anon-shared')
+
+    const local = createCookieLayer(true, doc)
+    // Removal must clear BOTH the shared cookie and the host-only twin, so a later reconcile on a
+    // fresh page load finds nothing to promote back onto the shared cookie.
+    expect(local?.remove(KEY)).toBe(true)
+
+    const fresh = createCookieLayer(true, docAt('https://app.example.com/', jar))
+    expect(fresh?.get(KEY)).toBeNull()
+    expect(docAt('https://app.example.com/', jar).cookie).not.toContain(KEY)
+  })
+
+  it('returns false when a blocked cookie store cannot delete the value', () => {
+    // A document that silently drops deletions (max-age=0 writes) while still reporting the value —
+    // e.g. cookies blocked mid-session. remove() must report the failure, not assume success, so a
+    // privacy teardown surfaces rather than silently leaving identity behind.
+    const jar = new CookieJar()
+    const real = new JSDOM('', { url: 'https://app.example.com/', cookieJar: jar }).window.document
+    const doc: CookieDocument = {
+      get cookie() {
+        return real.cookie
+      },
+      set cookie(value: string) {
+        if (value.includes('max-age=0')) return
+        real.cookie = value
+      },
+      location: { hostname: 'app.example.com', protocol: 'https:' },
+    }
+    const layer = createCookieLayer(true, doc)
+    expect(layer?.set(KEY, 'anon-123')).toBe(true)
+    expect(layer?.remove(KEY)).toBe(false)
+  })
+
   it('expires a stale host-only twin so it cannot shadow the shared cookie', () => {
     const jar = new CookieJar()
     const doc = docAt('https://app.example.com/', jar)
@@ -206,6 +252,60 @@ describe('createCookieLayer', () => {
     expect(layer?.set(KEY, 'fresh')).toBe(true)
     expect(layer?.get(KEY)).toBe('fresh')
     expect(doc.cookie.split('; ').filter(part => part.startsWith(`${KEY}=`))).toHaveLength(1)
+  })
+
+  it('does not let a stale host-only twin shadow or corrupt the shared cookie on read', () => {
+    const jar = new CookieJar()
+    const doc = docAt('https://app.example.com/', jar)
+    // A stale host-only twin, created first so it sorts ahead of the shared cookie on this origin.
+    doc.cookie = `${KEY}=anon-stale; path=/`
+    // The authoritative shared identity is written afterward (e.g. from a sibling subdomain).
+    const www = createCookieLayer(true, docAt('https://www.example.com/', jar))
+    expect(www?.set(KEY, 'anon-shared')).toBe(true)
+
+    const app = createCookieLayer(true, doc)
+    const read = app?.get(KEY)
+    // Reads must resolve to the shared value, never the stale host-only twin.
+    expect(read).toBe('anon-shared')
+    // The SDK refreshes what it reads (to extend expiry); that must not promote the twin onto the
+    // shared cookie. The sibling must still see the uncorrupted shared identity.
+    app?.set(KEY, read as string)
+    expect(www?.get(KEY)).toBe('anon-shared')
+  })
+
+  it('promotes a lone host-only value to the shared cookie so siblings inherit it', () => {
+    const jar = new CookieJar()
+    const doc = docAt('https://app.example.com/', jar)
+    // Only a host-only value exists (e.g. left by a prior crossSubdomainTracking:false run).
+    doc.cookie = `${KEY}=anon-legacy; path=/`
+    const app = createCookieLayer(true, doc)
+    expect(app?.crossSubdomain).toBe(true)
+    expect(app?.get(KEY)).toBe('anon-legacy')
+    // First access promotes it to the registrable domain, so a sibling now reads the same identity.
+    expect(docAt('https://www.example.com/', jar).cookie).toContain(`${KEY}=anon-legacy`)
+  })
+
+  it('restores the host-only twin when promoting it to the shared cookie fails', () => {
+    // A document that accepts probe/host-only writes but drops the long-lived domain-scoped identity
+    // write (a browser that stops accepting domain cookies mid-session). The lone host-only value
+    // must survive — restored — rather than be lost when the promotion write cannot land, since
+    // cross-subdomain reads do not fall back to localStorage.
+    const jar = new CookieJar()
+    const real = new JSDOM('', { url: 'https://app.example.com/', cookieJar: jar }).window.document
+    const doc: CookieDocument = {
+      get cookie() {
+        return real.cookie
+      },
+      set cookie(value: string) {
+        if (value.includes('domain=.example.com') && value.includes('max-age=31536000')) return
+        real.cookie = value
+      },
+      location: { hostname: 'app.example.com', protocol: 'https:' },
+    }
+    doc.cookie = `${KEY}=anon-legacy; path=/`
+    const layer = createCookieLayer(true, doc)
+    expect(layer?.crossSubdomain).toBe(true)
+    expect(layer?.get(KEY)).toBe('anon-legacy')
   })
 })
 

@@ -23,7 +23,14 @@ import {
   markIdentified,
   resolveDistinctId,
 } from './profile.js'
-import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
+import {
+  clearSession,
+  configureSession,
+  destroySession,
+  resetIdentity,
+  resolveSessionId,
+  type SessionConfig,
+} from './session.js'
 import { configureUrlSanitizer, type JsonValue, type TrackFn, type TrackOptions, toEvent } from './track.js'
 import {
   createTrackingConsent,
@@ -204,6 +211,12 @@ export const optOutTracking = (): void => {
   }
   state.trackingConsent.optOut()
   state.autoCapture.apply()
+  // Opting out is a privacy action, so tear down persisted identity: no identifiers should linger
+  // for a user who asked not to be tracked. In cross-subdomain mode this clears the shared cookie,
+  // propagating the identity teardown across sibling subdomains. Consent itself stays persisted
+  // (device-level) so the opt-out survives reloads; a later optInTracking() starts a fresh identity.
+  clearProfile()
+  clearSession()
   log.debug('Tracking opted out.')
 }
 
@@ -335,7 +348,8 @@ export const identify = async (externalId: string, traits?: Record<string, JsonV
       log.error('Failed to identify:', err)
     }
   } catch (err) {
-    log.error(`Unexpected error in identify("${externalId}"):`, err)
+    // Don't interpolate externalId: it is frequently PII (email, account id).
+    log.error('Unexpected error in identify():', err)
   }
 }
 

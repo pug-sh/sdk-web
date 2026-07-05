@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { configureProfile, isIdentified, markIdentified } from './profile.js'
-import { configureSession } from './session.js'
+import { clearProfile, configureProfile, isIdentified, markIdentified } from './profile.js'
+import { clearSession, configureSession } from './session.js'
 import { makeStorageKey } from './utils.js'
 
 const logSpies = {
@@ -74,6 +74,7 @@ vi.mock('./events/frustration.js', () => ({
 }))
 
 vi.mock('./session.js', () => ({
+  clearSession: vi.fn(),
   configureSession: vi.fn(),
   destroySession: vi.fn(),
   resetIdentity: vi.fn(),
@@ -362,6 +363,16 @@ describe('tracking consent', () => {
 
     expect(cleanupSpies.click).toHaveBeenCalledOnce()
     expect(cleanupSpies.form).toHaveBeenCalledOnce()
+  })
+
+  it('opt out tears down persisted identity (profile and session)', async () => {
+    const { init, optOutTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+    optOutTracking()
+
+    expect(clearProfile).toHaveBeenCalledOnce()
+    expect(clearSession).toHaveBeenCalledOnce()
   })
 
   it('opt in restores the stored auto-capture selection', async () => {

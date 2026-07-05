@@ -23,6 +23,7 @@ const createFakeCookieLayer = (crossSubdomain = true) => {
     },
     remove: key => {
       jar.delete(key)
+      return true
     },
   }
   return { layer, jar }
@@ -115,6 +116,44 @@ describe('createPersistentStore', () => {
     store?.removeItem('k')
     expect(jar.has('k')).toBe(false)
     expect(localStorage.getItem('k')).toBeNull()
+  })
+
+  it('reports removal success when every consulted layer confirms', () => {
+    const { layer } = createFakeCookieLayer(true)
+    const store = createPersistentStore(layer)
+    store?.setItem('k', 'v')
+    expect(store?.removeItem('k')).toBe(true)
+  })
+
+  it('reports failure in cross-subdomain mode when the cookie cannot be removed', () => {
+    // The shared cookie is authoritative; if it survives, so does the value — report the failure so
+    // opt-out/reset can surface an identity teardown that did not land.
+    const { layer } = createFakeCookieLayer(true)
+    layer.remove = () => false
+    const store = createPersistentStore(layer)
+    expect(store?.removeItem('k')).toBe(false)
+  })
+
+  it('reports success in cross-subdomain mode even if localStorage removal throws', () => {
+    // getItem never consults localStorage in this mode, so a stale localStorage twin is irrelevant —
+    // the cookie's removal is what determines whether a subsequent read misses.
+    const { layer } = createFakeCookieLayer(true)
+    const store = createPersistentStore(layer)
+    vi.spyOn(localStorage, 'removeItem').mockImplementation(() => {
+      throw new Error('boom')
+    })
+    expect(store?.removeItem('k')).toBe(true)
+  })
+
+  it('reports failure for a host-only store when localStorage removal throws', () => {
+    // Reads prefer the cookie and fall back to localStorage, so both must be gone to report success.
+    const { layer } = createFakeCookieLayer(false)
+    const store = createPersistentStore(layer)
+    vi.spyOn(localStorage, 'removeItem').mockImplementation(() => {
+      throw new Error('boom')
+    })
+    expect(store?.removeItem('k')).toBe(false)
+    expect(logSpies.warn).toHaveBeenCalledWith('Failed to remove "k" from localStorage:', expect.any(Error))
   })
 
   it('reports success when only the cookie write lands', () => {

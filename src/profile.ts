@@ -63,14 +63,26 @@ export const resolveDistinctId = (): string => {
 }
 
 export const clearProfile = (): void => {
-  store?.removeItem(storageKey)
-  store?.removeItem(externalIdKey)
+  // reset()/opt-out teardown: a failed removal in cross-subdomain mode means the shared identity
+  // cookie survived and would resurface on the next read, so surface it at error level.
+  if (store) {
+    if (!store.removeItem(storageKey)) {
+      log.error('Failed to clear the anonymous profile from storage — it may resurface on the next page load.')
+    }
+    if (!store.removeItem(externalIdKey)) {
+      log.error('Failed to clear the external ID from storage — it may resurface on the next page load.')
+    }
+  }
   anonymousId = ''
   externalId = ''
 }
 
 export const destroyProfile = (): void => {
-  clearProfile()
+  // Teardown, not logout: leave persisted identity in place so a later init() resumes it. Removing
+  // the shared cross-subdomain cookie here would wipe identity for every sibling subdomain.
+  // clearProfile() (via reset()) is the deliberate clear.
+  anonymousId = ''
+  externalId = ''
   storageKey = ''
   externalIdKey = ''
   store = null

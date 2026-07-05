@@ -22,7 +22,8 @@ export interface CookieLayer {
   get(name: string): string | null
   /** Returns true only when the write verifiably landed (read-back matches). */
   set(name: string, value: string): boolean
-  remove(name: string): void
+  /** Returns true only when the key is verifiably gone (read-back is null). */
+  remove(name: string): boolean
   /** True when the cookie is scoped to a shared domain and therefore visible across subdomains. */
   readonly crossSubdomain: boolean
 }
@@ -148,41 +149,86 @@ export const createCookieLayer = (
   const domainAttr = domain ? `; domain=.${domain}` : ''
   const secureAttr = doc.location.protocol === 'https:' ? '; secure' : ''
   const attrs = `; SameSite=Lax; path=/${domainAttr}${secureAttr}`
-  // Names whose stale host-only twin (from an earlier config without a domain attribute) was
-  // expired — a leftover twin would shadow the shared cookie on reads.
-  const cleanedTwins = new Set<string>()
+  // Keys already reconciled against a stale host-only twin this page load (see reconcileTwin).
+  const reconciledKeys = new Set<string>()
+
+  const writeCookie = (key: string, value: string): boolean => {
+    try {
+      // encodeURIComponent stays inside the try — it throws on malformed UTF-16 (lone surrogates),
+      // and callers must never throw.
+      const encoded = `${encodeURIComponent(key)}=${encodeURIComponent(value)}${attrs}; max-age=${COOKIE_MAX_AGE_SECONDS}`
+      if (encoded.length > MAX_COOKIE_LENGTH) {
+        log.warn(`Cookie for "${key}" would exceed ${MAX_COOKIE_LENGTH} chars; skipping cookie write.`)
+        return false
+      }
+      doc.cookie = encoded
+      return readCookie(doc, key) === value
+    } catch {
+      return false
+    }
+  }
+
+  // In cross-subdomain mode a same-named host-only cookie (a leftover twin from an earlier
+  // host-only config, or a sibling that fell back to host-only) is indistinguishable by name from
+  // the shared domain cookie in document.cookie and can sort ahead of it on reads. Left in place it
+  // shadows the shared value — and worse, a read-then-refresh (getAnonymousId, session activity)
+  // would copy the stale twin onto the shared domain cookie, corrupting identity for every
+  // subdomain. Reconcile once per key on first access (read or write): expire the host-only twin,
+  // then see what remains. A surviving value is the shared cookie and is authoritative; if nothing
+  // remains the twin was the only value (a genuine host-only → shared migration) so re-promote it.
+  // No-op in host-only mode (no shared cookie, so no twin risk).
+  const reconcileTwin = (key: string): void => {
+    if (!domainAttr || reconciledKeys.has(key)) {
+      return
+    }
+    reconciledKeys.add(key)
+    try {
+      const before = readCookie(doc, key)
+      if (before === null) {
+        return // nothing present — no twin to reconcile
+      }
+      doc.cookie = `${encodeURIComponent(key)}=; path=/; max-age=0`
+      if (readCookie(doc, key) !== null) {
+        return // a shared cookie survives the host-only expiry and is authoritative — leave it
+      }
+      // Nothing remains: `before` was a lone host-only twin (a genuine host-only → shared
+      // migration), so promote it to the shared cookie. If that write fails, restore the host-only
+      // twin rather than leave the value gone entirely — cross-subdomain reads don't fall back to
+      // localStorage, and the next page load will retry the promotion.
+      if (!writeCookie(key, before)) {
+        doc.cookie = `${encodeURIComponent(key)}=${encodeURIComponent(before)}; path=/; max-age=${COOKIE_MAX_AGE_SECONDS}`
+      }
+    } catch {
+      // Sandboxed frame or malformed key — nothing to reconcile; reads fall through to what exists.
+    }
+  }
 
   return {
     crossSubdomain: domainAttr !== '',
-    get: key => readCookie(doc, key),
+    get: key => {
+      reconcileTwin(key)
+      return readCookie(doc, key)
+    },
     set: (key, value) => {
-      try {
-        // encodeURIComponent stays inside the try — it throws on malformed UTF-16 (lone
-        // surrogates), and set() must never throw.
-        const encoded = `${encodeURIComponent(key)}=${encodeURIComponent(value)}${attrs}; max-age=${COOKIE_MAX_AGE_SECONDS}`
-        if (encoded.length > MAX_COOKIE_LENGTH) {
-          log.warn(`Cookie for "${key}" would exceed ${MAX_COOKIE_LENGTH} chars; skipping cookie write.`)
-          return false
-        }
-        if (domainAttr && !cleanedTwins.has(key)) {
-          cleanedTwins.add(key)
-          doc.cookie = `${encodeURIComponent(key)}=; path=/; max-age=0`
-        }
-        doc.cookie = encoded
-        return readCookie(doc, key) === value
-      } catch {
-        return false
-      }
+      reconcileTwin(key)
+      return writeCookie(key, value)
     },
     remove: key => {
+      // After an explicit remove there is no twin left worth reconciling on a later access.
+      reconciledKeys.add(key)
       try {
         doc.cookie = `${encodeURIComponent(key)}=; path=/${domainAttr}; max-age=0`
         // Also clear a host-only twin so a removed key cannot resurrect from an older scope.
         if (domainAttr) {
           doc.cookie = `${encodeURIComponent(key)}=; path=/; max-age=0`
         }
+        // Read back and report whether the key is actually gone. A cookie store blocked mid-session
+        // no-ops the assignments above without throwing, so a privacy teardown (opt-out/reset) could
+        // otherwise silently fail and let the shared identity cookie resurface on the next read.
+        return readCookie(doc, key) === null
       } catch {
         // Removal is best-effort.
+        return false
       }
     },
   }

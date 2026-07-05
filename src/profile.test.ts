@@ -127,6 +127,36 @@ describe('cross-subdomain identity', () => {
     expect(second.profile.getAnonymousId()).not.toBe(anonId)
   })
 
+  it('logs an error when clearProfile cannot confirm the identity was removed', async () => {
+    vi.resetModules()
+    const profile = await import('./profile.js')
+    // A store whose removals never land (e.g. the shared cookie blocked mid-session): clearProfile
+    // must surface it, since an unremoved identity cookie would resurface on the next read.
+    const store = { crossSubdomain: true, getItem: () => null, setItem: () => true, removeItem: () => false }
+    profile.configureProfile(PROJECT_ID, store)
+    profile.clearProfile()
+    expect(logSpies.error).toHaveBeenCalledWith(
+      'Failed to clear the anonymous profile from storage — it may resurface on the next page load.',
+    )
+    expect(logSpies.error).toHaveBeenCalledWith(
+      'Failed to clear the external ID from storage — it may resurface on the next page load.',
+    )
+  })
+
+  it('does not clear the shared cookie on destroyProfile so a re-init resumes identity', async () => {
+    const jar = new CookieJar()
+
+    const first = await pageLoad('https://app.example.com/', jar)
+    const anonId = first.profile.getAnonymousId()
+    // destroy() is a runtime teardown, not a logout — it must not wipe the shared identity cookie
+    // (that would reset every sibling subdomain).
+    first.profile.destroyProfile()
+
+    localStorage.clear()
+    const second = await pageLoad('https://www.example.com/', jar)
+    expect(second.profile.getAnonymousId()).toBe(anonId)
+  })
+
   it('does not resurrect a reset identity from a sibling origin after logout (cross-subdomain)', async () => {
     const jar = new CookieJar()
 

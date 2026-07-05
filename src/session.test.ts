@@ -1,7 +1,7 @@
 import { CookieJar, JSDOM } from 'jsdom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PersistentStore } from './persistence.js'
-import { configureSession, destroySession, resetIdentity, resolveSessionId, rotate } from './session.js'
+import { clearSession, configureSession, destroySession, resetIdentity, resolveSessionId, rotate } from './session.js'
 import { makeStorageKey } from './utils.js'
 
 const PROJECT_ID = 'test-project'
@@ -188,6 +188,21 @@ describe('rotate', () => {
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('rotate() called before init()'))
     spy.mockRestore()
   })
+
+  it('warns when the rotated session fails to persist', () => {
+    destroySession()
+    const store: PersistentStore = {
+      crossSubdomain: true,
+      getItem: () => null,
+      setItem: () => false,
+      removeItem: () => {},
+    }
+    configureSession(PROJECT_ID, undefined, store)
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    rotate()
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('rotated session'))
+    spy.mockRestore()
+  })
 })
 
 describe('resetIdentity', () => {
@@ -199,14 +214,59 @@ describe('resetIdentity', () => {
     expect(after.sessionId).not.toBe(before.sessionId)
     expect(after.deviceId).not.toBe(before.deviceId)
   })
+
+  it('logs an error when the identity reset fails to persist', () => {
+    destroySession()
+    const store: PersistentStore = {
+      crossSubdomain: true,
+      getItem: () => null,
+      setItem: () => false,
+      removeItem: () => {},
+    }
+    configureSession(PROJECT_ID, undefined, store)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    resetIdentity()
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('identity reset'))
+    spy.mockRestore()
+  })
+})
+
+describe('clearSession', () => {
+  it('removes the persisted session but leaves the module configured for a fresh one', () => {
+    const id1 = resolveSessionId()
+    expect(mockStorage.getItem(SESSION_KEY)).not.toBeNull()
+    clearSession()
+    expect(mockStorage.getItem(SESSION_KEY)).toBeNull()
+    // Still configured — a later call lazily starts a fresh session without reconfiguring.
+    const id2 = resolveSessionId()
+    expect(id2).toBeTruthy()
+    expect(id2).not.toBe(id1)
+  })
+
+  it('logs an error when clearing the session cannot be confirmed', () => {
+    destroySession()
+    const store: PersistentStore = {
+      crossSubdomain: true,
+      getItem: () => null,
+      setItem: () => true,
+      removeItem: () => false,
+    }
+    configureSession(PROJECT_ID, undefined, store)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    clearSession()
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('clear the session'))
+    spy.mockRestore()
+  })
 })
 
 describe('destroySession', () => {
-  it('clears session from localStorage', () => {
+  it('leaves persisted session state in place (teardown is not logout)', () => {
     resolveSessionId()
     expect(mockStorage.getItem(SESSION_KEY)).not.toBeNull()
     destroySession()
-    expect(mockStorage.getItem(SESSION_KEY)).toBeNull()
+    // destroy() is a runtime teardown: the persisted session must survive so a later init() can
+    // resume it. reset()/clearSession() are the deliberate clears.
+    expect(mockStorage.getItem(SESSION_KEY)).not.toBeNull()
   })
 
   it('only removes own tab entry from tabs map', () => {
@@ -428,6 +488,60 @@ describe('cross-subdomain sessions', () => {
     const writesAfterFirst = setItem.mock.calls.length
     resolveSessionId()
     expect(setItem.mock.calls.length).toBeGreaterThan(writesAfterFirst)
+  })
+
+  it('does not remove the shared session cookie on destroy (would end sessions site-wide)', () => {
+    destroySession()
+    const store = createFakeStore(true)
+    seedSession(store, 'shared-session')
+    configureSession(PROJECT_ID, undefined, store)
+    resolveSessionId()
+    destroySession()
+    // Teardown must leave the shared cookie so siblings keep their session.
+    expect(store.map.get(SESSION_KEY)).toBeTruthy()
+  })
+
+  it('removes the shared session cookie on clearSession so an opt-out propagates to siblings', () => {
+    destroySession()
+    const store = createFakeStore(true)
+    seedSession(store, 'shared-session')
+    configureSession(PROJECT_ID, undefined, store)
+    resolveSessionId()
+    clearSession()
+    expect(store.map.get(SESSION_KEY)).toBeUndefined()
+  })
+
+  it('does not advance the persist throttle when a cross-subdomain write fails', () => {
+    destroySession()
+    let persistOk = true
+    const map = new Map<string, string>()
+    const setItem = vi.fn((key: string, value: string) => {
+      if (persistOk) {
+        map.set(key, value)
+      }
+      return persistOk
+    })
+    const store: PersistentStore = {
+      crossSubdomain: true,
+      getItem: key => map.get(key) ?? null,
+      setItem,
+      removeItem: key => {
+        map.delete(key)
+      },
+    }
+    configureSession(PROJECT_ID, undefined, store)
+    const start = Date.now()
+    resolveSessionId() // rotate persists at t0 → lastPersistMs = t0
+    persistOk = false
+    // t0+11s: throttle window elapsed → a write is attempted, and it fails (must NOT advance the clock).
+    vi.spyOn(Date, 'now').mockReturnValue(start + 11_000)
+    resolveSessionId()
+    const callsAfterFailedRetry = setItem.mock.calls.length
+    // t0+12s: only 1s since the failed attempt, but since it never landed the throttle is still
+    // measured from t0, so another write must be attempted (the bug would suppress it).
+    vi.spyOn(Date, 'now').mockReturnValue(start + 12_000)
+    resolveSessionId()
+    expect(setItem.mock.calls.length).toBeGreaterThan(callsAfterFailedRetry)
   })
 })
 
