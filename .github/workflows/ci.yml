@@ -18,23 +18,42 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      # Node is still required: the `prebuild` script shells out to `node`.
+      # Node is still required: the `prebuild` script and the codegen scripts shell out to `node`.
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      # buf regenerates the vendored protobuf code (src/gen) from proto/ for the drift check.
+      # `make protos` reads the committed proto/ mirror only — no Buf Schema Registry access.
+      # github_token authenticates the buf-binary download from GitHub releases so the
+      # release-asset lookup isn't rate-limited on shared runner IPs (unauthenticated GitHub
+      # API allows only 60 req/hr/IP). The default GITHUB_TOKEN suffices — no BSR access needed.
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
       - run: bun install --frozen-lockfile
+
+      # Regenerate the vendored protobuf code + typed-event registry from the committed proto/
+      # mirror and fail if the output drifts — i.e. proto/ or a schema changed without re-running
+      # `make protos`. Mirrors sdk-android / sdk-flutter CI.
+      - name: Verify vendored codegen is up to date
+        run: |
+          make protos
+          if ! git diff --quiet -- src/gen src/well-known-events.generated.ts; then
+            echo "::error::Vendored codegen is stale. Run 'make protos' and commit src/gen + src/well-known-events.generated.ts."
+            git diff --stat -- src/gen src/well-known-events.generated.ts
+            exit 1
+          fi
 
       - run: bun run build
 
-      # Fail if the committed generated files don't match a fresh `bun run build`
-      # — e.g. someone bumped the package version or the @buf dependency without
-      # re-running the codegen (`prebuild` regenerates both files).
-      - name: Verify generated files are up to date
+      # `prebuild` stamps src/version.ts from package.json; fail if it wasn't committed.
+      - name: Verify src/version.ts is up to date
         run: |
-          if ! git diff --quiet -- src/version.ts src/well-known-events.generated.ts; then
-            echo "::error::Generated files are out of date. Run 'bun run build' and commit src/version.ts and src/well-known-events.generated.ts."
-            git diff -- src/version.ts src/well-known-events.generated.ts
+          if ! git diff --quiet -- src/version.ts; then
+            echo "::error::src/version.ts is out of date. Run 'bun run build' and commit src/version.ts."
+            git diff -- src/version.ts
             exit 1
           fi
 

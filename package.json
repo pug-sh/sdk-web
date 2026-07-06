@@ -2,10 +2,24 @@
   "name": "@poluruprvn/pug-web",
   "version": "0.0.8",
   "description": "Pug Web SDK for event tracking",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "pug_sw.js",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "prebuild": "echo \"export const SDK_VERSION = '$(node -p \"require('./package.json').version\")'\" > src/version.ts && node scripts/gen-well-known-events.mjs",
+    "prebuild": "echo \"export const SDK_VERSION = '$(node -p \"require('./package.json').version\")'\" > src/version.ts",
     "build": "tsc",
     "watch": "tsc -w",
     "dev": "tsc -w & serve . & sleep 1 && open http://localhost:3000 && wait",
@@ -16,7 +30,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@buf/pugsh_pug.bufbuild_es": "2.12.1-20260703054414-34cac42a0ae0.1",
     "@bufbuild/protobuf": "^2.12.0",
     "@bufbuild/protovalidate": "^1.1.1",
     "@connectrpc/connect": "^2.1.1",
@@ -32,6 +45,7 @@
   "license": "MIT",
   "devDependencies": {
     "@biomejs/biome": "2.5.2",
+    "@bufbuild/protoc-gen-es": "^2.12.1",
     "jsdom": "^29.0.1",
     "serve": "^14.2.6",
     "typescript": "^5.9.3",
