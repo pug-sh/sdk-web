@@ -163,7 +163,8 @@ export const createCookieLayer = (
       }
       doc.cookie = encoded
       return readCookie(doc, key) === value
-    } catch {
+    } catch (err) {
+      log.debug(`Cookie write for "${key}" threw:`, err)
       return false
     }
   }
@@ -198,8 +199,9 @@ export const createCookieLayer = (
       if (!writeCookie(key, before)) {
         doc.cookie = `${encodeURIComponent(key)}=${encodeURIComponent(before)}; path=/; max-age=${COOKIE_MAX_AGE_SECONDS}`
       }
-    } catch {
+    } catch (err) {
       // Sandboxed frame or malformed key — nothing to reconcile; reads fall through to what exists.
+      log.debug(`Cookie twin reconciliation for "${key}" threw:`, err)
     }
   }
 
@@ -226,8 +228,9 @@ export const createCookieLayer = (
         // no-ops the assignments above without throwing, so a privacy teardown (opt-out/reset) could
         // otherwise silently fail and let the shared identity cookie resurface on the next read.
         return readCookie(doc, key) === null
-      } catch {
-        // Removal is best-effort.
+      } catch (err) {
+        // Removal is best-effort, but surface why so a failed privacy teardown is diagnosable.
+        log.debug(`Cookie removal for "${key}" threw:`, err)
         return false
       }
     },

@@ -75,13 +75,6 @@ export const createPersistentStore = (cookies: CookieLayer | null): PersistentSt
           log.warn(`Failed to write "${key}" to cookies:`, err)
         }
       }
-      // The probe passing at init does not guarantee later writes land (cookies can be disabled
-      // or dropped mid-session). In cross-subdomain mode the cookie is the layer reads trust, so
-      // a dropped write means the value will not survive a page load — say so, once per key.
-      if (cookies && !cookiePersisted && crossSubdomain && !warnedKeys.has(key)) {
-        warnedKeys.add(key)
-        log.warn(`Cross-subdomain cookie for "${key}" did not persist; this value will not survive a page load.`)
-      }
       let localPersisted = false
       if (local) {
         try {
@@ -94,7 +87,21 @@ export const createPersistentStore = (cookies: CookieLayer | null): PersistentSt
       // In cross-subdomain mode getItem never falls back to localStorage, so a localStorage-only
       // success is not persistence — report the cookie's outcome so identity/consent callers can
       // log truthfully when their write will not stick.
-      return crossSubdomain ? cookiePersisted : cookiePersisted || localPersisted
+      const persisted = crossSubdomain ? cookiePersisted : cookiePersisted || localPersisted
+      // The probe passing at init does not guarantee later writes land (cookies can be disabled or
+      // dropped, quota can fill mid-session). Whenever the value will not be readable on the next
+      // load — on any layer reads consult — say so once per key, in both modes. Host-only stores
+      // fall back to localStorage on read, so a dropped cookie there is a loss only when localStorage
+      // is also gone — which is exactly what `!persisted` captures.
+      if (!persisted && !warnedKeys.has(key)) {
+        warnedKeys.add(key)
+        log.warn(
+          crossSubdomain
+            ? `Cross-subdomain cookie for "${key}" did not persist; this value will not survive a page load.`
+            : `Persisting "${key}" failed on every available storage layer; this value will not survive a page load.`,
+        )
+      }
+      return persisted
     },
     removeItem: key => {
       // Absent layers can't hold a stale value, so they default to "removed".

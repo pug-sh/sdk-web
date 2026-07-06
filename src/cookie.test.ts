@@ -172,6 +172,18 @@ describe('createCookieLayer', () => {
     expect(layer?.set(KEY, '\uD800')).toBe(false)
   })
 
+  it('logs the cause when a cookie write throws instead of silently swallowing it', () => {
+    const layer = createCookieLayer(true, docAt('https://app.example.com/'))
+    layer?.set(KEY, '\uD800') // encodeURIComponent throws inside writeCookie
+    expect(logSpies.debug).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
+  })
+
+  it('logs the cause when a cookie removal throws (privacy teardown must surface why)', () => {
+    const layer = createCookieLayer(true, docAt('https://app.example.com/'))
+    expect(layer?.remove('\uD800')).toBe(false) // encodeURIComponent(key) throws inside remove
+    expect(logSpies.debug).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
+  })
+
   it('skips a malformed same-name twin and returns the valid shared value', () => {
     const jar = new CookieJar()
     const doc = docAt('https://app.example.com/', jar)

@@ -55,16 +55,26 @@ export interface InitOptions {
   readonly trackingConsent?: TrackingConsent | TrackingConsentConfig
   /**
    * Shares identity (anonymous ID, external ID, session state, persisted consent) across subdomains
-   * of the same site via a first-party cookie on the registrable domain (e.g. `.example.com`),
-   * discovered with a write-probe. Defaults to `true`; automatically degrades to a host-only cookie
-   * on localhost and IP hosts, and to localStorage
-   * when cookies are blocked. Cookies set from an HTTPS page carry the `Secure` attribute, so
-   * identity is shared only among HTTPS subdomains — an HTTP subdomain cannot read them. Set
-   * `false` for origin-scoped localStorage only, or `{ domain }` to
-   * pin an explicit cookie domain (falls back to host-only with a warning when the browser
-   * rejects it or it does not cover the current host). With cross-subdomain sessions, the
-   * "rotate when all tabs closed" heuristic is disabled —
-   * sessions end by idle/max timeout only, since tab liveness is unknowable across subdomains.
+   * of the same site via a first-party cookie on the registrable domain (e.g. `.example.com`).
+   *
+   * **Off by default.** Cross-subdomain identity trades browser-enforced same-origin isolation for
+   * the weaker same-site trust model, so it must be a conscious opt-in per integrator — see
+   * `docs/cross-domain-tracking-threat-model.md`.
+   *
+   * - `false` (default) — origin-scoped `localStorage` only; no shared cookie.
+   * - `true` — discover the widest settable domain (eTLD+1) with a write-probe. Degrades to a
+   *   host-only cookie on localhost and IP hosts, and to `localStorage` when cookies are blocked.
+   *   Cookies set from an HTTPS page carry `Secure`, so identity is shared only among HTTPS
+   *   subdomains — an HTTP subdomain cannot read them. ⚠️ On a custom multi-tenant registrable
+   *   domain that is not on the Public Suffix List (e.g. `tenant-a.myplatform.com` and
+   *   `tenant-b.myplatform.com` run as separate customers), the probe returns the shared
+   *   `myplatform.com`, letting sibling tenants read and overwrite each other's identity. Prefer
+   *   an explicit `{ domain }` in that topology.
+   * - `{ domain }` — pin an explicit cookie domain (falls back to a host-only cookie with a warning
+   *   when the browser rejects it or it does not cover the current host).
+   *
+   * With cross-subdomain sessions, the "rotate when all tabs closed" heuristic is disabled — sessions
+   * end by idle/max timeout only, since tab liveness is unknowable across subdomains.
    */
   readonly crossSubdomainTracking?: CrossSubdomainConfig
   /**
@@ -131,10 +141,14 @@ export const init = (projectId: string, options: InitOptions) => {
 
   let store: PersistentStore | null = null
   try {
-    store = createPersistentStore(createCookieLayer(options.crossSubdomainTracking ?? true))
+    store = createPersistentStore(createCookieLayer(options.crossSubdomainTracking ?? false))
   } catch (err) {
     log.warn('Failed to initialize persistence:', err)
   }
+
+  // Create consent before configuring identity so the init-time expiry refresh in configureProfile
+  // is gated on it — no identity cookie write while consent is denied (threat-model constraint #6).
+  const trackingConsent = createTrackingConsent(projectId, options.trackingConsent, store)
 
   try {
     configureSession(projectId, options.session, store)
@@ -143,7 +157,7 @@ export const init = (projectId: string, options: InitOptions) => {
   }
 
   try {
-    configureProfile(projectId, store)
+    configureProfile(projectId, store, trackingConsent.isGranted)
   } catch (err) {
     log.warn('Failed to configure profile:', err)
   }
@@ -157,7 +171,6 @@ export const init = (projectId: string, options: InitOptions) => {
   configureUrlSanitizer(options.sanitizeUrl)
 
   const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
-  const trackingConsent = createTrackingConsent(projectId, options.trackingConsent, store)
   const autoCapture = createAutoCaptureController(track, trackingConsent.isGranted)
 
   state = {

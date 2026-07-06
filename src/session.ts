@@ -255,7 +255,7 @@ export const resetIdentity = (): void => {
 // cross-subdomain mode this removes the shared cookie, so the opt-out propagates to sibling
 // subdomains.
 export const clearSession = (): void => {
-  // reset()/opt-out teardown: a failed removal in cross-subdomain mode means the shared session
+  // opt-out teardown: a failed removal in cross-subdomain mode means the shared session
   // cookie survived and would resurface on the next read, so surface it at error level.
   if (store && !store.removeItem(config.storageKey)) {
     log.error('Failed to clear the session from storage — it may resurface on the next page load.')

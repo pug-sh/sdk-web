@@ -106,7 +106,21 @@ describe('createPersistentStore', () => {
     layer.set = () => false
     const store = createPersistentStore(layer)
     store?.setItem('k', 'v')
+    // localStorage is available here, so the value still persists (host-only reads fall back to it):
+    // a dropped cookie is not a loss, so warning would be noise.
     expect(logSpies.warn).not.toHaveBeenCalled()
+  })
+
+  it('warns when a host-only write persists on no layer (localStorage also unavailable)', () => {
+    // Host-only cookie drops the write AND localStorage is gone: the value is lost on every layer,
+    // so a subsequent getItem misses. That must not be silent (previously the warning was gated on
+    // cross-subdomain mode and this path logged nothing).
+    vi.mocked(isStorageAvailable).mockReturnValue(false)
+    const { layer } = createFakeCookieLayer(false)
+    layer.set = () => false
+    const store = createPersistentStore(layer)
+    expect(store?.setItem('k', 'v')).toBe(false)
+    expect(logSpies.warn).toHaveBeenCalledTimes(1)
   })
 
   it('removes from both layers', () => {

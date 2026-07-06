@@ -143,6 +143,57 @@ describe('cross-subdomain identity', () => {
     )
   })
 
+  const storeWith = (externalId: string) => {
+    const setItem = vi.fn(() => true)
+    const store = {
+      crossSubdomain: true,
+      getItem: (k: string) => (k === EXTERNAL_ID_KEY ? externalId : null),
+      setItem,
+      removeItem: () => true,
+    }
+    return { store, setItem }
+  }
+
+  it('does not re-write the persisted externalId at init while consent is denied', async () => {
+    vi.resetModules()
+    const profile = await import('./profile.js')
+    const { store, setItem } = storeWith('user-42')
+    profile.configureProfile(PROJECT_ID, store, () => false)
+    // Restored into memory for consent-gated reads, but NOT persisted: no identity cookie write
+    // while the user has not consented (threat-model constraint #6 — "no cookie while denied").
+    expect(profile.resolveDistinctId()).toBe('user-42')
+    expect(setItem).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the persisted externalId at init when consent is granted', async () => {
+    vi.resetModules()
+    const profile = await import('./profile.js')
+    const { store, setItem } = storeWith('user-42')
+    profile.configureProfile(PROJECT_ID, store, () => true)
+    expect(setItem).toHaveBeenCalledWith(EXTERNAL_ID_KEY, 'user-42')
+  })
+
+  it('refreshes the persisted externalId when no consent getter is provided (backward-compatible)', async () => {
+    vi.resetModules()
+    const profile = await import('./profile.js')
+    const { store, setItem } = storeWith('user-42')
+    profile.configureProfile(PROJECT_ID, store)
+    expect(setItem).toHaveBeenCalledWith(EXTERNAL_ID_KEY, 'user-42')
+  })
+
+  it('logs an error when the external ID write does not land', async () => {
+    vi.resetModules()
+    const profile = await import('./profile.js')
+    // A store whose writes never land (e.g. the shared cookie blocked mid-session): markIdentified
+    // must surface it at error level — identification would otherwise silently not survive a reload.
+    const store = { crossSubdomain: true, getItem: () => null, setItem: () => false, removeItem: () => true }
+    profile.configureProfile(PROJECT_ID, store)
+    profile.markIdentified('user-42')
+    expect(logSpies.error).toHaveBeenCalledWith(
+      'Failed to persist external ID to storage — identification will not survive page reload.',
+    )
+  })
+
   it('does not clear the shared cookie on destroyProfile so a re-init resumes identity', async () => {
     const jar = new CookieJar()
 

@@ -1,3 +1,4 @@
+import { CookieJar, JSDOM } from 'jsdom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isStorageAvailable, makeStorageKey } from './utils.js'
 
@@ -187,5 +188,34 @@ describe('createTrackingConsent with a provided store', () => {
     consent.optIn()
     expect(consent.getConsent()).toBe('granted')
     expect(localStorage.getItem(KEY)).toBeNull()
+  })
+})
+
+describe('cross-subdomain consent propagation (real cookie layer)', () => {
+  // A fresh consent controller wired to a real cookie layer at `url`, over a shared jar so documents
+  // at sibling subdomains see each other's domain-scoped cookie — exactly how an opt-out propagates.
+  const consentAt = async (url: string, jar: CookieJar) => {
+    vi.resetModules()
+    const [{ createTrackingConsent }, { createCookieLayer }, { createPersistentStore }] = await Promise.all([
+      import('./tracking-consent.js'),
+      import('./cookie.js'),
+      import('./persistence.js'),
+    ])
+    const doc = new JSDOM('', { url, cookieJar: jar }).window.document
+    const store = createPersistentStore(createCookieLayer(true, doc))
+    return createTrackingConsent('proj', { persist: true }, store)
+  }
+
+  it('an opt-out on one subdomain is seen as denied on a sibling subdomain', async () => {
+    const jar = new CookieJar()
+
+    const app = await consentAt('https://app.example.com/', jar)
+    app.optOut()
+    expect(app.getConsent()).toBe('denied')
+
+    // Sibling origin: its own (empty) localStorage — only the shared cookie carries the choice.
+    localStorage.clear()
+    const www = await consentAt('https://www.example.com/', jar)
+    expect(www.getConsent()).toBe('denied')
   })
 })
