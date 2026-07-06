@@ -1,6 +1,6 @@
-import { EventsService } from '@buf/pugsh_pug.bufbuild_es/sdk/events/v1/events_pb.js'
 import { createClient } from '@connectrpc/connect'
 import { createApiTransport } from './api-transport.js'
+import { EventsService } from './gen/sdk/events/v1/events_pb.js'
 
 const defaultTimeoutMs = 5000
 

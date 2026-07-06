@@ -1,4 +1,3 @@
-import { IdentifyRequestSchema, ProfilesSDKService } from '@buf/pugsh_pug.bufbuild_es/sdk/profiles/v1/profiles_pb.js'
 import { create } from '@bufbuild/protobuf'
 import { createValidator } from '@bufbuild/protovalidate'
 import { createClient } from '@connectrpc/connect'
@@ -11,6 +10,7 @@ import {
 } from './auto-capture.js'
 import { type BatchConfig, createBatchedTransport } from './batch.js'
 import { type CrossSubdomainConfig, createCookieLayer } from './cookie.js'
+import { IdentifyRequestSchema, ProfilesSDKService } from './gen/sdk/profiles/v1/profiles_pb.js'
 import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
 import { createPersistentStore, type PersistentStore } from './persistence.js'
