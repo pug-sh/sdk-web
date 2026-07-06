@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { isIdentified, markIdentified } from './profile.js'
+import { clearProfile, configureProfile, getAnonymousId, isIdentified, markIdentified } from './profile.js'
+import { clearSession, configureSession } from './session.js'
 import { makeStorageKey } from './utils.js'
 
 const logSpies = {
@@ -73,6 +74,7 @@ vi.mock('./events/frustration.js', () => ({
 }))
 
 vi.mock('./session.js', () => ({
+  clearSession: vi.fn(),
   configureSession: vi.fn(),
   destroySession: vi.fn(),
   resetIdentity: vi.fn(),
@@ -363,6 +365,16 @@ describe('tracking consent', () => {
     expect(cleanupSpies.form).toHaveBeenCalledOnce()
   })
 
+  it('opt out tears down persisted identity (profile and session)', async () => {
+    const { init, optOutTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+    optOutTracking()
+
+    expect(clearProfile).toHaveBeenCalledOnce()
+    expect(clearSession).toHaveBeenCalledOnce()
+  })
+
   it('opt in restores the stored auto-capture selection', async () => {
     const { init, optInTracking } = await importPug()
 
@@ -481,6 +493,27 @@ describe('identify', () => {
     expect(logSpies.error).toHaveBeenCalledWith('Failed to identify:', expect.any(Error))
     expect(markIdentified).not.toHaveBeenCalled()
   })
+
+  it('does not leak the externalId (PII) into logs when identify throws unexpectedly', async () => {
+    const PII = 'user@example.com'
+    // Force the outer catch: getAnonymousId (called while building the request on first identify)
+    // throws. The catch must log the failure WITHOUT interpolating the externalId, which is
+    // frequently PII (email, account id).
+    vi.mocked(isIdentified).mockReturnValue(false)
+    vi.mocked(getAnonymousId).mockImplementationOnce(() => {
+      throw new Error('boom')
+    })
+    const { identify, init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+    await expect(identify(PII)).resolves.toBeUndefined()
+
+    expect(logSpies.error).toHaveBeenCalledWith('Unexpected error in identify():', expect.any(Error))
+    // The redaction guarantee: no error log (message or args) contains the PII externalId.
+    for (const call of logSpies.error.mock.calls) {
+      expect(JSON.stringify(call)).not.toContain(PII)
+    }
+  })
 })
 
 describe('tracking consent persistence', () => {
@@ -578,5 +611,70 @@ describe('url sanitizer wiring', () => {
 
     const event = transportSpies.send.mock.calls.at(-1)?.[0] as SentEvent
     expect(event.autoProperties.$url.value.value).not.toBe('REDACTED')
+  })
+})
+
+describe('crossSubdomainTracking wiring', () => {
+  const CONSENT_KEY = makeStorageKey('project-id', 'consent')
+
+  const capturedStore = () => {
+    const store = vi.mocked(configureSession).mock.calls[0]?.[2]
+    if (!store) {
+      throw new Error('configureSession did not receive a persistent store')
+    }
+    return store
+  }
+
+  it('defaults to off (localStorage-only) and threads the same store into session and profile', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+
+    const store = capturedStore()
+    expect(vi.mocked(configureProfile)).toHaveBeenCalledWith('project-id', store, expect.any(Function))
+    // The default is now off (per the threat model — cross-subdomain must be an explicit opt-in):
+    // no cookie layer, so writes go to localStorage only, never document.cookie.
+    store.setItem('__pug_wiring_probe__', 'v')
+    expect(document.cookie).not.toContain('__pug_wiring_probe__')
+    expect(localStorage.getItem('__pug_wiring_probe__')).toBe('v')
+    expect(store.crossSubdomain).toBe(false)
+  })
+
+  it('threads the store into consent so a persisted opt-out rides the cookie when enabled', async () => {
+    const { init, optOutTracking } = await importPug()
+
+    // Cross-subdomain must be explicitly enabled for consent to ride the cookie (default is off).
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      crossSubdomainTracking: true,
+      trackingConsent: { persist: true },
+    })
+    optOutTracking()
+
+    expect(document.cookie).toContain(`${CONSENT_KEY}=denied`)
+  })
+
+  it('crossSubdomainTracking: false builds a store without a cookie layer', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, crossSubdomainTracking: false })
+
+    const store = capturedStore()
+    store.setItem('__pug_wiring_probe__', 'v')
+    expect(document.cookie).not.toContain('__pug_wiring_probe__')
+    expect(localStorage.getItem('__pug_wiring_probe__')).toBe('v')
+  })
+
+  it('passes an explicit { domain } through to the cookie layer', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, crossSubdomainTracking: { domain: 'example.com' } })
+
+    // localhost is not covered by example.com — the layer warns and falls back to host-only,
+    // proving the option reached the cookie layer intact.
+    expect(logSpies.warn).toHaveBeenCalledWith(
+      'crossSubdomainTracking domain "example.com" is not usable on "localhost"; using a host-only cookie instead.',
+    )
   })
 })

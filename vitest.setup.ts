@@ -5,6 +5,22 @@
 // nothing to read or write against. This installs a minimal in-memory Storage
 // that matches browser semantics closely enough to exercise that behavior.
 
+import { beforeEach } from 'vitest'
+
+// jsdom keeps one cookie jar per test file, so cookies written by the SDK's
+// cookie layer would leak between tests. Expire them all before each test.
+beforeEach(() => {
+  if (typeof document === 'undefined') {
+    return
+  }
+  for (const part of document.cookie.split('; ')) {
+    const name = part.split('=')[0]
+    if (name) {
+      document.cookie = `${name}=; path=/; max-age=0`
+    }
+  }
+})
+
 const createMemoryStorage = (): Storage => {
   const store = new Map<string, string>()
   const storage = {

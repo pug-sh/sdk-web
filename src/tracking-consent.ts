@@ -1,48 +1,49 @@
 import { log } from './logger.js'
-import { isStorageAvailable, makeStorageKey } from './utils.js'
+import { type PersistentStore, resolveStore } from './persistence.js'
+import { makeStorageKey } from './utils.js'
 
 export type TrackingConsent = 'granted' | 'denied'
 
 export interface TrackingConsentConfig {
   /** First-run seed used when nothing is persisted yet. Defaults to 'granted'. */
   readonly default?: TrackingConsent
-  /** Persist opt in/out to localStorage and restore any persisted value on construction (i.e. on the next init()). Defaults to false. */
+  /** Persist opt in/out and restore any persisted value on construction (i.e. on the next init()). Defaults to false. */
   readonly persist?: boolean
 }
 
-export const createTrackingConsent = (projectId: string, config?: TrackingConsent | TrackingConsentConfig) => {
+export const createTrackingConsent = (
+  projectId: string,
+  config?: TrackingConsent | TrackingConsentConfig,
+  persistentStore?: PersistentStore | null,
+) => {
   const normalized: TrackingConsentConfig = typeof config === 'string' ? { default: config } : (config ?? {})
   const persist = normalized.persist ?? false
   const storageKey = makeStorageKey(projectId, 'consent')
-  const storage = persist && isStorageAvailable() ? localStorage : null
+  const store = persist ? resolveStore(persistentStore) : null
 
-  if (persist && !storage) {
+  if (persist && !store) {
     log.warn('Storage unavailable; tracking consent will not persist across page loads.')
   }
 
   // First-run seed, then let any valid persisted value override it.
   let status: TrackingConsent = normalized.default ?? 'granted'
-  if (storage) {
-    try {
-      const stored = storage.getItem(storageKey)
-      if (stored === 'granted' || stored === 'denied') {
-        status = stored
-      } else if (stored !== null) {
-        log.warn(`Stored tracking consent "${stored}" at "${storageKey}" is invalid, ignoring.`)
-      }
-    } catch (err) {
-      log.warn('Failed to read tracking consent from storage:', err)
+  if (store) {
+    const stored = store.getItem(storageKey)
+    if (stored === 'granted' || stored === 'denied') {
+      status = stored
+      // Re-write so a cookie-backed store refreshes its expiry.
+      store.setItem(storageKey, stored)
+    } else if (stored !== null) {
+      log.warn(`Stored tracking consent at "${storageKey}" is invalid, ignoring.`)
     }
   }
 
   const write = (value: TrackingConsent): void => {
-    if (!storage) {
+    if (!store) {
       return
     }
-    try {
-      storage.setItem(storageKey, value)
-    } catch (err) {
-      log.error('Failed to persist tracking consent to storage — opt in/out will not survive page reload:', err)
+    if (!store.setItem(storageKey, value)) {
+      log.error('Failed to persist tracking consent to storage — opt in/out will not survive page reload.')
     }
   }
 

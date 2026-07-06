@@ -10,8 +10,10 @@ import {
   createAutoCaptureController,
 } from './auto-capture.js'
 import { type BatchConfig, createBatchedTransport } from './batch.js'
+import { type CrossSubdomainConfig, createCookieLayer } from './cookie.js'
 import { log } from './logger.js'
 import { initUserAgentData } from './parsers.js'
+import { createPersistentStore, type PersistentStore } from './persistence.js'
 import {
   clearProfile,
   configureProfile,
@@ -21,7 +23,14 @@ import {
   markIdentified,
   resolveDistinctId,
 } from './profile.js'
-import { configureSession, destroySession, resetIdentity, resolveSessionId, type SessionConfig } from './session.js'
+import {
+  clearSession,
+  configureSession,
+  destroySession,
+  resetIdentity,
+  resolveSessionId,
+  type SessionConfig,
+} from './session.js'
 import { configureUrlSanitizer, type JsonValue, type TrackFn, type TrackOptions, toEvent } from './track.js'
 import {
   createTrackingConsent,
@@ -45,6 +54,30 @@ export interface InitOptions {
   readonly autoCapture?: AutoCaptureConfig
   readonly trackingConsent?: TrackingConsent | TrackingConsentConfig
   /**
+   * Shares identity (anonymous ID, external ID, session state, persisted consent) across subdomains
+   * of the same site via a first-party cookie on the registrable domain (e.g. `.example.com`).
+   *
+   * **Off by default.** Cross-subdomain identity trades browser-enforced same-origin isolation for
+   * the weaker same-site trust model, so it must be a conscious opt-in per integrator — see
+   * `docs/cross-domain-tracking-threat-model.md`.
+   *
+   * - `false` (default) — origin-scoped `localStorage` only; no shared cookie.
+   * - `true` — discover the widest settable domain (eTLD+1) with a write-probe. Degrades to a
+   *   host-only cookie on localhost and IP hosts, and to `localStorage` when cookies are blocked.
+   *   Cookies set from an HTTPS page carry `Secure`, so identity is shared only among HTTPS
+   *   subdomains — an HTTP subdomain cannot read them. ⚠️ On a custom multi-tenant registrable
+   *   domain that is not on the Public Suffix List (e.g. `tenant-a.myplatform.com` and
+   *   `tenant-b.myplatform.com` run as separate customers), the probe returns the shared
+   *   `myplatform.com`, letting sibling tenants read and overwrite each other's identity. Prefer
+   *   an explicit `{ domain }` in that topology.
+   * - `{ domain }` — pin an explicit cookie domain (falls back to a host-only cookie with a warning
+   *   when the browser rejects it or it does not cover the current host).
+   *
+   * With cross-subdomain sessions, the "rotate when all tabs closed" heuristic is disabled — sessions
+   * end by idle/max timeout only, since tab liveness is unknowable across subdomains.
+   */
+  readonly crossSubdomainTracking?: CrossSubdomainConfig
+  /**
    * Transforms `$url` and `$referrer` (on every event) and a form's `action` (on submit) before
    * they leave the device — e.g. to strip PII-bearing query params or mask path segments
    * (`/orders/12345` → `/orders/:orderId`). Called synchronously on the `track()` hot path, so keep
@@ -55,7 +88,7 @@ export interface InitOptions {
   readonly sanitizeUrl?: (url: string) => string
 }
 
-export type { AutoCaptureConfig, AutoCaptureSelection, TrackingConsent, TrackingConsentConfig }
+export type { AutoCaptureConfig, AutoCaptureSelection, CrossSubdomainConfig, TrackingConsent, TrackingConsentConfig }
 
 interface PugState {
   readonly config: PugConfig
@@ -106,14 +139,25 @@ export const init = (projectId: string, options: InitOptions) => {
 
   const config: PugConfig = { endpoint: options.endpoint || DEFAULT_ENDPOINT, projectId }
 
+  let store: PersistentStore | null = null
   try {
-    configureSession(projectId, options.session)
+    store = createPersistentStore(createCookieLayer(options.crossSubdomainTracking ?? false))
+  } catch (err) {
+    log.warn('Failed to initialize persistence:', err)
+  }
+
+  // Create consent before configuring identity so the init-time expiry refresh in configureProfile
+  // is gated on it — no identity cookie write while consent is denied (threat-model constraint #6).
+  const trackingConsent = createTrackingConsent(projectId, options.trackingConsent, store)
+
+  try {
+    configureSession(projectId, options.session, store)
   } catch (err) {
     log.warn('Failed to configure session tracking:', err)
   }
 
   try {
-    configureProfile(projectId)
+    configureProfile(projectId, store, trackingConsent.isGranted)
   } catch (err) {
     log.warn('Failed to configure profile:', err)
   }
@@ -127,7 +171,6 @@ export const init = (projectId: string, options: InitOptions) => {
   configureUrlSanitizer(options.sanitizeUrl)
 
   const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
-  const trackingConsent = createTrackingConsent(projectId, options.trackingConsent)
   const autoCapture = createAutoCaptureController(track, trackingConsent.isGranted)
 
   state = {
@@ -181,6 +224,12 @@ export const optOutTracking = (): void => {
   }
   state.trackingConsent.optOut()
   state.autoCapture.apply()
+  // Opting out is a privacy action, so tear down persisted identity: no identifiers should linger
+  // for a user who asked not to be tracked. In cross-subdomain mode this clears the shared cookie,
+  // propagating the identity teardown across sibling subdomains. Consent itself stays persisted
+  // (device-level) so the opt-out survives reloads; a later optInTracking() starts a fresh identity.
+  clearProfile()
+  clearSession()
   log.debug('Tracking opted out.')
 }
 
@@ -312,7 +361,8 @@ export const identify = async (externalId: string, traits?: Record<string, JsonV
       log.error('Failed to identify:', err)
     }
   } catch (err) {
-    log.error(`Unexpected error in identify("${externalId}"):`, err)
+    // Don't interpolate externalId: it is frequently PII (email, account id).
+    log.error('Unexpected error in identify():', err)
   }
 }
 

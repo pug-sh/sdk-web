@@ -47,7 +47,7 @@ init('your-project-id', {
 })
 ```
 
-For consent-first flows, start with tracking consent denied. While denied, automatic listeners are not attached, and manual `track()` and `identify()` are dropped (events are not queued for later replay). Set `persist: true` to remember the user's choice across reloads in `localStorage`; otherwise consent is in-memory and you pass the initial value yourself on each `init()`.
+For consent-first flows, start with tracking consent denied. While denied, automatic listeners are not attached, and manual `track()` and `identify()` are dropped (events are not queued for later replay). Set `persist: true` to remember the user's choice across reloads — it is persisted like identity (through the cross-subdomain cookie when active, so an opt-out on one subdomain applies on siblings, plus `localStorage`); otherwise consent is in-memory and you pass the initial value yourself on each `init()`.
 
 ```ts
 import { init, optInTracking, optOutTracking, setAutoCapture } from 'pug-web'
@@ -76,7 +76,8 @@ optOutTracking()
 | `endpoint` | `string` | `https://api.pugs.dev` | Backend base URL. |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
 | `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object enables only keys set to `true`. |
-| `trackingConsent` | `'granted' \| 'denied' \| { default?, persist? }` | `'granted'` | Tracking consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored. Object form: `default` is the first-run seed; `persist: true` stores the choice in `localStorage` and restores it on the next `init()`. |
+| `trackingConsent` | `'granted' \| 'denied' \| { default?, persist? }` | `'granted'` | Tracking consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored. Object form: `default` is the first-run seed; `persist: true` persists the choice and restores it on the next `init()` — it rides the cross-subdomain cookie when active, so an opt-out applies on sibling subdomains. |
+| `crossSubdomainTracking` | `boolean \| { domain: string }` | `false` | **Off by default** — cross-subdomain identity relaxes browser same-origin isolation to the weaker same-site model, so it is an explicit opt-in. `false` keeps persistence origin-scoped in `localStorage`. `true` shares identity (anonymous ID, external ID, session, persisted consent) across subdomains via a first-party cookie on the registrable domain (e.g. `.example.com`), auto-discovered with a write-probe; it degrades to a host-only cookie on localhost and IP hosts, and to `localStorage` when cookies are blocked, and cookies set from HTTPS carry `Secure` (shared only among HTTPS subdomains). ⚠️ On a custom multi-tenant domain not on the [Public Suffix List](https://publicsuffix.org/) (e.g. `a.myplatform.com` and `b.myplatform.com` as separate tenants) the probe returns the shared `myplatform.com`, letting sibling tenants read each other's identity — use `{ domain }` to pin an explicit cookie domain there. Cross-subdomain sessions end by idle/max timeout only — the "rotate when all tabs closed" heuristic is origin-scoped and is disabled in this mode. |
 | `sanitizeUrl` | `(url: string) => string` | — | Redacts URLs before they leave the device — rewrites `$url`, `$referrer`, and captured form actions to mask routes or strip PII query params. Fails closed: throwing or returning a non-string drops the URL. See [Privacy controls](#privacy-controls). |
 
 ### Tracking consent API

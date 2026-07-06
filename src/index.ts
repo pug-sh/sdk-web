@@ -3,6 +3,7 @@ export { type BatchConfig } from './batch.js'
 export {
   type AutoCaptureConfig,
   type AutoCaptureSelection,
+  type CrossSubdomainConfig,
   destroy,
   getTrackingConsent,
   type InitOptions,
