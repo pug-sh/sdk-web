@@ -25,7 +25,12 @@ jobs:
 
       # buf regenerates the vendored protobuf code (src/gen) from proto/ for the drift check.
       # `make protos` reads the committed proto/ mirror only — no Buf Schema Registry access.
+      # github_token authenticates the buf-binary download from GitHub releases so the
+      # release-asset lookup isn't rate-limited on shared runner IPs (unauthenticated GitHub
+      # API allows only 60 req/hr/IP). The default GITHUB_TOKEN suffices — no BSR access needed.
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - run: bun install --frozen-lockfile
 
