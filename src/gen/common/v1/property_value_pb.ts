@@ -4,7 +4,6 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import { file_buf_validate_validate } from "../../buf/validate/validate_pb.js";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
@@ -13,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file common/v1/property_value.proto.
  */
 export const file_common_v1_property_value: GenFile = /*@__PURE__*/
-  fileDesc("Ch5jb21tb24vdjEvcHJvcGVydHlfdmFsdWUucHJvdG8SCWNvbW1vbi52MSLEAQoNUHJvcGVydHlWYWx1ZRIgCgxzdHJpbmdfdmFsdWUYASABKAlCCLpIBXIDGIAISAASEwoJaW50X3ZhbHVlGAIgASgDSAASHwoMZG91YmxlX3ZhbHVlGAMgASgBQge6SAQSAkABSAASFAoKYm9vbF92YWx1ZRgEIAEoCEgAEjUKD3RpbWVzdGFtcF92YWx1ZRgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAEIOCgV2YWx1ZRIFukgCCAFCPVo7Z2l0aHViLmNvbS9wdWctc2gvcHVnL2ludGVybmFsL2dlbi9wcm90by9jb21tb24vdjE7Y29tbW9udjFiCGVkaXRpb25zcOgH", [file_buf_validate_validate, file_google_protobuf_timestamp]);
+  fileDesc("Ch5jb21tb24vdjEvcHJvcGVydHlfdmFsdWUucHJvdG8SCWNvbW1vbi52MSLEAQoNUHJvcGVydHlWYWx1ZRIgCgxzdHJpbmdfdmFsdWUYASABKAlCCLpIBXIDGIAISAASEwoJaW50X3ZhbHVlGAIgASgDSAASHwoMZG91YmxlX3ZhbHVlGAMgASgBQge6SAQSAkABSAASFAoKYm9vbF92YWx1ZRgEIAEoCEgAEjUKD3RpbWVzdGFtcF92YWx1ZRgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAEIOCgV2YWx1ZRIFukgCCAFCPVo7Z2l0aHViLmNvbS9wdWctc2gvcHVnL2ludGVybmFsL2dlbi9wcm90by9jb21tb24vdjE7Y29tbW9udjFiCGVkaXRpb25zcOgH", [file_google_protobuf_timestamp]);
 
 /**
  * PropertyValue is the typed value of an event property.

@@ -35,6 +35,7 @@ proto-latest:
 protos:
 	@command -v buf >/dev/null || { echo "buf CLI required: https://buf.build/docs/installation"; exit 1; }
 	PATH="$(CURDIR)/node_modules/.bin:$$PATH" buf generate
+	node scripts/strip-validate-deps.mjs
 	$(MAKE) typed-events
 
 # Rebuild the well-known-event registry (src/well-known-events.generated.ts) from the

@@ -5,8 +5,11 @@
 # and compiled by tsc like the rest of src/.
 #
 # google/protobuf/* resolve from @bufbuild/protobuf/wkt at runtime and are not emitted.
-# buf/validate/* IS emitted — the pug protos import its field-option extensions
-# (file_buf_validate_validate) via a relative path, so it must be generated alongside.
+# buf/validate/* is generated here (the pug protos import its field-option extensions) but
+# then stripped by scripts/strip-validate-deps.mjs in `make protos`: the SDK no longer
+# validates client-side, and protobuf-es's fileDesc() rebuilds the dependency list from the
+# deps array, so the ~73 KB validate_pb descriptor is dead weight in the bundle. The
+# `(buf.validate.*)` option bytes remain as harmless unknown fields in the embedded descriptors.
 version: v2
 clean: true
 plugins:

@@ -2,16 +2,20 @@
 // Run `make typed-events` to regenerate (buf generate + this script).
 // Source: buf.build/pugsh/pug protos, vendored under proto/ and generated into src/gen.
 // Filter: events whose (common.events.v1.platforms) option contains PLATFORM_WEB or is unset.
+//
+// TYPE-ONLY: emitted with `import type`, so it contributes ZERO runtime code. The schema
+// descriptors are used only for compile-time typing (track() autocomplete + prop
+// type-checking); they never reach the browser bundle.
 
 /* eslint-disable */
-import {
+import type {
   ApiKeyCreatedPropertiesSchema,
   ApiKeyRevokedPropertiesSchema,
 } from './gen/common/events/v1/api_events_pb.js'
-import {
+import type {
   FeatureUsedPropertiesSchema,
 } from './gen/common/events/v1/app_events_pb.js'
-import {
+import type {
   EmailVerifiedPropertiesSchema,
   MfaDisabledPropertiesSchema,
   MfaEnabledPropertiesSchema,
@@ -21,7 +25,7 @@ import {
   SignoutPropertiesSchema,
   SignupPropertiesSchema,
 } from './gen/common/events/v1/auth_events_pb.js'
-import {
+import type {
   InvoiceFailedPropertiesSchema,
   InvoicePaidPropertiesSchema,
   PaymentFailedPropertiesSchema,
@@ -39,7 +43,7 @@ import {
   TrialConvertedPropertiesSchema,
   TrialStartedPropertiesSchema,
 } from './gen/common/events/v1/billing_events_pb.js'
-import {
+import type {
   ChatArchivedPropertiesSchema,
   ChatAttachmentDownloadedPropertiesSchema,
   ChatAttachmentUploadedPropertiesSchema,
@@ -71,7 +75,7 @@ import {
   ChatUnarchivedPropertiesSchema,
   ChatUserBlockedPropertiesSchema,
 } from './gen/common/events/v1/chat_events_pb.js'
-import {
+import type {
   AddToCartPropertiesSchema,
   CartViewedPropertiesSchema,
   CheckoutStartedPropertiesSchema,
@@ -86,7 +90,7 @@ import {
   WishlistAddedPropertiesSchema,
   WishlistRemovedPropertiesSchema,
 } from './gen/common/events/v1/commerce_events_pb.js'
-import {
+import type {
   FilterAppliedPropertiesSchema,
   RecommendationClickedPropertiesSchema,
   RecommendationViewedPropertiesSchema,
@@ -94,28 +98,28 @@ import {
   SearchResultClickedPropertiesSchema,
   SortChangedPropertiesSchema,
 } from './gen/common/events/v1/discovery_events_pb.js'
-import {
+import type {
   ErrorOccurredPropertiesSchema,
 } from './gen/common/events/v1/error_events_pb.js'
-import {
+import type {
   ExportCompletedPropertiesSchema,
   ExportStartedPropertiesSchema,
   FileDownloadedPropertiesSchema,
   FileUploadedPropertiesSchema,
 } from './gen/common/events/v1/file_events_pb.js'
-import {
+import type {
   FormStartPropertiesSchema,
   FormSubmitPropertiesSchema,
 } from './gen/common/events/v1/form_events_pb.js'
-import {
+import type {
   IntegrationConnectedPropertiesSchema,
   IntegrationDisconnectedPropertiesSchema,
 } from './gen/common/events/v1/integration_events_pb.js'
-import {
+import type {
   InviteAcceptedPropertiesSchema,
   InviteSentPropertiesSchema,
 } from './gen/common/events/v1/invitation_events_pb.js'
-import {
+import type {
   AudioCompletedPropertiesSchema,
   AudioPausePropertiesSchema,
   AudioPlayPropertiesSchema,
@@ -127,22 +131,22 @@ import {
   VideoSeekedPropertiesSchema,
   VideoStartedPropertiesSchema,
 } from './gen/common/events/v1/media_events_pb.js'
-import {
+import type {
   ClickPropertiesSchema,
   DeadClickPropertiesSchema,
   PageViewPropertiesSchema,
   RageClickPropertiesSchema,
   ScrollPropertiesSchema,
 } from './gen/common/events/v1/navigation_events_pb.js'
-import {
+import type {
   NotificationClickedPropertiesSchema,
   NotificationDismissedPropertiesSchema,
   NotificationReceivedPropertiesSchema,
 } from './gen/common/events/v1/notification_events_pb.js'
-import {
+import type {
   SharePropertiesSchema,
 } from './gen/common/events/v1/social_events_pb.js'
-import {
+import type {
   FeedbackSubmittedPropertiesSchema,
   HelpArticleViewedPropertiesSchema,
   NpsSubmittedPropertiesSchema,
@@ -152,7 +156,7 @@ import {
   SurveyCompletedPropertiesSchema,
   SurveyStartedPropertiesSchema,
 } from './gen/common/events/v1/support_events_pb.js'
-import {
+import type {
   WorkspaceCreatedPropertiesSchema,
   WorkspaceDeletedPropertiesSchema,
   WorkspaceJoinedPropertiesSchema,
@@ -160,124 +164,124 @@ import {
   WorkspaceSettingsUpdatedPropertiesSchema,
 } from './gen/common/events/v1/workspace_events_pb.js'
 
-export const wellKnownSchemas = Object.freeze({
-  add_to_cart: AddToCartPropertiesSchema,
-  api_key_created: ApiKeyCreatedPropertiesSchema,
-  api_key_revoked: ApiKeyRevokedPropertiesSchema,
-  audio_completed: AudioCompletedPropertiesSchema,
-  audio_pause: AudioPausePropertiesSchema,
-  audio_play: AudioPlayPropertiesSchema,
-  audio_seeked: AudioSeekedPropertiesSchema,
-  audio_started: AudioStartedPropertiesSchema,
-  cart_viewed: CartViewedPropertiesSchema,
-  chat_archived: ChatArchivedPropertiesSchema,
-  chat_attachment_downloaded: ChatAttachmentDownloadedPropertiesSchema,
-  chat_attachment_uploaded: ChatAttachmentUploadedPropertiesSchema,
-  chat_call_joined: ChatCallJoinedPropertiesSchema,
-  chat_call_left: ChatCallLeftPropertiesSchema,
-  chat_call_recording_started: ChatCallRecordingStartedPropertiesSchema,
-  chat_call_screen_shared: ChatCallScreenSharedPropertiesSchema,
-  chat_call_started: ChatCallStartedPropertiesSchema,
-  chat_created: ChatCreatedPropertiesSchema,
-  chat_deleted: ChatDeletedPropertiesSchema,
-  chat_joined: ChatJoinedPropertiesSchema,
-  chat_left: ChatLeftPropertiesSchema,
-  chat_member_added: ChatMemberAddedPropertiesSchema,
-  chat_member_muted: ChatMemberMutedPropertiesSchema,
-  chat_member_removed: ChatMemberRemovedPropertiesSchema,
-  chat_member_role_changed: ChatMemberRoleChangedPropertiesSchema,
-  chat_message_deleted: ChatMessageDeletedPropertiesSchema,
-  chat_message_edited: ChatMessageEditedPropertiesSchema,
-  chat_message_failed: ChatMessageFailedPropertiesSchema,
-  chat_message_pinned: ChatMessagePinnedPropertiesSchema,
-  chat_message_read: ChatMessageReadPropertiesSchema,
-  chat_message_received: ChatMessageReceivedPropertiesSchema,
-  chat_message_sent: ChatMessageSentPropertiesSchema,
-  chat_message_unpinned: ChatMessageUnpinnedPropertiesSchema,
-  chat_reaction_added: ChatReactionAddedPropertiesSchema,
-  chat_reaction_removed: ChatReactionRemovedPropertiesSchema,
-  chat_typing_started: ChatTypingStartedPropertiesSchema,
-  chat_typing_stopped: ChatTypingStoppedPropertiesSchema,
-  chat_unarchived: ChatUnarchivedPropertiesSchema,
-  chat_user_blocked: ChatUserBlockedPropertiesSchema,
-  checkout_started: CheckoutStartedPropertiesSchema,
-  checkout_step_completed: CheckoutStepCompletedPropertiesSchema,
-  click: ClickPropertiesSchema,
-  coupon_applied: CouponAppliedPropertiesSchema,
-  coupon_removed: CouponRemovedPropertiesSchema,
-  dead_click: DeadClickPropertiesSchema,
-  email_verified: EmailVerifiedPropertiesSchema,
-  error_occurred: ErrorOccurredPropertiesSchema,
-  export_completed: ExportCompletedPropertiesSchema,
-  export_started: ExportStartedPropertiesSchema,
-  feature_used: FeatureUsedPropertiesSchema,
-  feedback_submitted: FeedbackSubmittedPropertiesSchema,
-  file_downloaded: FileDownloadedPropertiesSchema,
-  file_uploaded: FileUploadedPropertiesSchema,
-  filter_applied: FilterAppliedPropertiesSchema,
-  form_start: FormStartPropertiesSchema,
-  form_submit: FormSubmitPropertiesSchema,
-  help_article_viewed: HelpArticleViewedPropertiesSchema,
-  integration_connected: IntegrationConnectedPropertiesSchema,
-  integration_disconnected: IntegrationDisconnectedPropertiesSchema,
-  invite_accepted: InviteAcceptedPropertiesSchema,
-  invite_sent: InviteSentPropertiesSchema,
-  invoice_failed: InvoiceFailedPropertiesSchema,
-  invoice_paid: InvoicePaidPropertiesSchema,
-  mfa_disabled: MfaDisabledPropertiesSchema,
-  mfa_enabled: MfaEnabledPropertiesSchema,
-  notification_clicked: NotificationClickedPropertiesSchema,
-  notification_dismissed: NotificationDismissedPropertiesSchema,
-  notification_received: NotificationReceivedPropertiesSchema,
-  nps_submitted: NpsSubmittedPropertiesSchema,
-  order_refunded: OrderRefundedPropertiesSchema,
-  page_view: PageViewPropertiesSchema,
-  password_reset_completed: PasswordResetCompletedPropertiesSchema,
-  password_reset_requested: PasswordResetRequestedPropertiesSchema,
-  payment_failed: PaymentFailedPropertiesSchema,
-  payment_method_added: PaymentMethodAddedPropertiesSchema,
-  payment_method_removed: PaymentMethodRemovedPropertiesSchema,
-  payment_succeeded: PaymentSucceededPropertiesSchema,
-  product_list_viewed: ProductListViewedPropertiesSchema,
-  product_viewed: ProductViewedPropertiesSchema,
-  purchase: PurchasePropertiesSchema,
-  rage_click: RageClickPropertiesSchema,
-  recommendation_clicked: RecommendationClickedPropertiesSchema,
-  recommendation_viewed: RecommendationViewedPropertiesSchema,
-  refund_failed: RefundFailedPropertiesSchema,
-  remove_from_cart: RemoveFromCartPropertiesSchema,
-  scroll: ScrollPropertiesSchema,
-  search: SearchPropertiesSchema,
-  search_result_clicked: SearchResultClickedPropertiesSchema,
-  share: SharePropertiesSchema,
-  signin: SigninPropertiesSchema,
-  signout: SignoutPropertiesSchema,
-  signup: SignupPropertiesSchema,
-  sort_changed: SortChangedPropertiesSchema,
-  subscription_canceled: SubscriptionCanceledPropertiesSchema,
-  subscription_changed: SubscriptionChangedPropertiesSchema,
-  subscription_paused: SubscriptionPausedPropertiesSchema,
-  subscription_renewed: SubscriptionRenewedPropertiesSchema,
-  subscription_resumed: SubscriptionResumedPropertiesSchema,
-  subscription_started: SubscriptionStartedPropertiesSchema,
-  subscription_trial_will_end: SubscriptionTrialWillEndPropertiesSchema,
-  support_chat_started: SupportChatStartedPropertiesSchema,
-  support_ticket_created: SupportTicketCreatedPropertiesSchema,
-  support_ticket_resolved: SupportTicketResolvedPropertiesSchema,
-  survey_completed: SurveyCompletedPropertiesSchema,
-  survey_started: SurveyStartedPropertiesSchema,
-  trial_converted: TrialConvertedPropertiesSchema,
-  trial_started: TrialStartedPropertiesSchema,
-  video_completed: VideoCompletedPropertiesSchema,
-  video_pause: VideoPausePropertiesSchema,
-  video_play: VideoPlayPropertiesSchema,
-  video_seeked: VideoSeekedPropertiesSchema,
-  video_started: VideoStartedPropertiesSchema,
-  wishlist_added: WishlistAddedPropertiesSchema,
-  wishlist_removed: WishlistRemovedPropertiesSchema,
-  workspace_created: WorkspaceCreatedPropertiesSchema,
-  workspace_deleted: WorkspaceDeletedPropertiesSchema,
-  workspace_joined: WorkspaceJoinedPropertiesSchema,
-  workspace_role_changed: WorkspaceRoleChangedPropertiesSchema,
-  workspace_settings_updated: WorkspaceSettingsUpdatedPropertiesSchema,
-} as const)
+export type WellKnownSchemaMap = {
+  add_to_cart: typeof AddToCartPropertiesSchema,
+  api_key_created: typeof ApiKeyCreatedPropertiesSchema,
+  api_key_revoked: typeof ApiKeyRevokedPropertiesSchema,
+  audio_completed: typeof AudioCompletedPropertiesSchema,
+  audio_pause: typeof AudioPausePropertiesSchema,
+  audio_play: typeof AudioPlayPropertiesSchema,
+  audio_seeked: typeof AudioSeekedPropertiesSchema,
+  audio_started: typeof AudioStartedPropertiesSchema,
+  cart_viewed: typeof CartViewedPropertiesSchema,
+  chat_archived: typeof ChatArchivedPropertiesSchema,
+  chat_attachment_downloaded: typeof ChatAttachmentDownloadedPropertiesSchema,
+  chat_attachment_uploaded: typeof ChatAttachmentUploadedPropertiesSchema,
+  chat_call_joined: typeof ChatCallJoinedPropertiesSchema,
+  chat_call_left: typeof ChatCallLeftPropertiesSchema,
+  chat_call_recording_started: typeof ChatCallRecordingStartedPropertiesSchema,
+  chat_call_screen_shared: typeof ChatCallScreenSharedPropertiesSchema,
+  chat_call_started: typeof ChatCallStartedPropertiesSchema,
+  chat_created: typeof ChatCreatedPropertiesSchema,
+  chat_deleted: typeof ChatDeletedPropertiesSchema,
+  chat_joined: typeof ChatJoinedPropertiesSchema,
+  chat_left: typeof ChatLeftPropertiesSchema,
+  chat_member_added: typeof ChatMemberAddedPropertiesSchema,
+  chat_member_muted: typeof ChatMemberMutedPropertiesSchema,
+  chat_member_removed: typeof ChatMemberRemovedPropertiesSchema,
+  chat_member_role_changed: typeof ChatMemberRoleChangedPropertiesSchema,
+  chat_message_deleted: typeof ChatMessageDeletedPropertiesSchema,
+  chat_message_edited: typeof ChatMessageEditedPropertiesSchema,
+  chat_message_failed: typeof ChatMessageFailedPropertiesSchema,
+  chat_message_pinned: typeof ChatMessagePinnedPropertiesSchema,
+  chat_message_read: typeof ChatMessageReadPropertiesSchema,
+  chat_message_received: typeof ChatMessageReceivedPropertiesSchema,
+  chat_message_sent: typeof ChatMessageSentPropertiesSchema,
+  chat_message_unpinned: typeof ChatMessageUnpinnedPropertiesSchema,
+  chat_reaction_added: typeof ChatReactionAddedPropertiesSchema,
+  chat_reaction_removed: typeof ChatReactionRemovedPropertiesSchema,
+  chat_typing_started: typeof ChatTypingStartedPropertiesSchema,
+  chat_typing_stopped: typeof ChatTypingStoppedPropertiesSchema,
+  chat_unarchived: typeof ChatUnarchivedPropertiesSchema,
+  chat_user_blocked: typeof ChatUserBlockedPropertiesSchema,
+  checkout_started: typeof CheckoutStartedPropertiesSchema,
+  checkout_step_completed: typeof CheckoutStepCompletedPropertiesSchema,
+  click: typeof ClickPropertiesSchema,
+  coupon_applied: typeof CouponAppliedPropertiesSchema,
+  coupon_removed: typeof CouponRemovedPropertiesSchema,
+  dead_click: typeof DeadClickPropertiesSchema,
+  email_verified: typeof EmailVerifiedPropertiesSchema,
+  error_occurred: typeof ErrorOccurredPropertiesSchema,
+  export_completed: typeof ExportCompletedPropertiesSchema,
+  export_started: typeof ExportStartedPropertiesSchema,
+  feature_used: typeof FeatureUsedPropertiesSchema,
+  feedback_submitted: typeof FeedbackSubmittedPropertiesSchema,
+  file_downloaded: typeof FileDownloadedPropertiesSchema,
+  file_uploaded: typeof FileUploadedPropertiesSchema,
+  filter_applied: typeof FilterAppliedPropertiesSchema,
+  form_start: typeof FormStartPropertiesSchema,
+  form_submit: typeof FormSubmitPropertiesSchema,
+  help_article_viewed: typeof HelpArticleViewedPropertiesSchema,
+  integration_connected: typeof IntegrationConnectedPropertiesSchema,
+  integration_disconnected: typeof IntegrationDisconnectedPropertiesSchema,
+  invite_accepted: typeof InviteAcceptedPropertiesSchema,
+  invite_sent: typeof InviteSentPropertiesSchema,
+  invoice_failed: typeof InvoiceFailedPropertiesSchema,
+  invoice_paid: typeof InvoicePaidPropertiesSchema,
+  mfa_disabled: typeof MfaDisabledPropertiesSchema,
+  mfa_enabled: typeof MfaEnabledPropertiesSchema,
+  notification_clicked: typeof NotificationClickedPropertiesSchema,
+  notification_dismissed: typeof NotificationDismissedPropertiesSchema,
+  notification_received: typeof NotificationReceivedPropertiesSchema,
+  nps_submitted: typeof NpsSubmittedPropertiesSchema,
+  order_refunded: typeof OrderRefundedPropertiesSchema,
+  page_view: typeof PageViewPropertiesSchema,
+  password_reset_completed: typeof PasswordResetCompletedPropertiesSchema,
+  password_reset_requested: typeof PasswordResetRequestedPropertiesSchema,
+  payment_failed: typeof PaymentFailedPropertiesSchema,
+  payment_method_added: typeof PaymentMethodAddedPropertiesSchema,
+  payment_method_removed: typeof PaymentMethodRemovedPropertiesSchema,
+  payment_succeeded: typeof PaymentSucceededPropertiesSchema,
+  product_list_viewed: typeof ProductListViewedPropertiesSchema,
+  product_viewed: typeof ProductViewedPropertiesSchema,
+  purchase: typeof PurchasePropertiesSchema,
+  rage_click: typeof RageClickPropertiesSchema,
+  recommendation_clicked: typeof RecommendationClickedPropertiesSchema,
+  recommendation_viewed: typeof RecommendationViewedPropertiesSchema,
+  refund_failed: typeof RefundFailedPropertiesSchema,
+  remove_from_cart: typeof RemoveFromCartPropertiesSchema,
+  scroll: typeof ScrollPropertiesSchema,
+  search: typeof SearchPropertiesSchema,
+  search_result_clicked: typeof SearchResultClickedPropertiesSchema,
+  share: typeof SharePropertiesSchema,
+  signin: typeof SigninPropertiesSchema,
+  signout: typeof SignoutPropertiesSchema,
+  signup: typeof SignupPropertiesSchema,
+  sort_changed: typeof SortChangedPropertiesSchema,
+  subscription_canceled: typeof SubscriptionCanceledPropertiesSchema,
+  subscription_changed: typeof SubscriptionChangedPropertiesSchema,
+  subscription_paused: typeof SubscriptionPausedPropertiesSchema,
+  subscription_renewed: typeof SubscriptionRenewedPropertiesSchema,
+  subscription_resumed: typeof SubscriptionResumedPropertiesSchema,
+  subscription_started: typeof SubscriptionStartedPropertiesSchema,
+  subscription_trial_will_end: typeof SubscriptionTrialWillEndPropertiesSchema,
+  support_chat_started: typeof SupportChatStartedPropertiesSchema,
+  support_ticket_created: typeof SupportTicketCreatedPropertiesSchema,
+  support_ticket_resolved: typeof SupportTicketResolvedPropertiesSchema,
+  survey_completed: typeof SurveyCompletedPropertiesSchema,
+  survey_started: typeof SurveyStartedPropertiesSchema,
+  trial_converted: typeof TrialConvertedPropertiesSchema,
+  trial_started: typeof TrialStartedPropertiesSchema,
+  video_completed: typeof VideoCompletedPropertiesSchema,
+  video_pause: typeof VideoPausePropertiesSchema,
+  video_play: typeof VideoPlayPropertiesSchema,
+  video_seeked: typeof VideoSeekedPropertiesSchema,
+  video_started: typeof VideoStartedPropertiesSchema,
+  wishlist_added: typeof WishlistAddedPropertiesSchema,
+  wishlist_removed: typeof WishlistRemovedPropertiesSchema,
+  workspace_created: typeof WorkspaceCreatedPropertiesSchema,
+  workspace_deleted: typeof WorkspaceDeletedPropertiesSchema,
+  workspace_joined: typeof WorkspaceJoinedPropertiesSchema,
+  workspace_role_changed: typeof WorkspaceRoleChangedPropertiesSchema,
+  workspace_settings_updated: typeof WorkspaceSettingsUpdatedPropertiesSchema,
+}

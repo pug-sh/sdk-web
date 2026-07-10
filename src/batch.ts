@@ -1,7 +1,7 @@
 import { fromJson, JsonValue, toJson } from '@bufbuild/protobuf'
-import { ConnectError } from '@connectrpc/connect'
 import { type Event, EventSchema } from './gen/sdk/events/v1/events_pb.js'
 import { log } from './logger.js'
+import { GrpcCode, RpcError } from './rpc.js'
 import { createTransport } from './transport.js'
 import { isStorageAvailable, makeStorageKey } from './utils.js'
 
@@ -174,16 +174,37 @@ export const DEFAULT_BATCH_CONFIG: BatchConfig = {
   maxQueueSize: 1000,
 }
 
-// gRPC codes that indicate client errors or server rejections that retrying cannot fix.
-// InvalidArgument(3), NotFound(5), AlreadyExists(6), PermissionDenied(7),
-// FailedPrecondition(9), Unimplemented(12), Unauthenticated(16)
-const PERMANENT_GRPC_CODES = new Set([3, 5, 6, 7, 9, 12, 16])
+// gRPC codes for client errors / server rejections that retrying cannot fix. Uses the shared
+// GrpcCode vocabulary from rpc.ts (the producer) so this consumer table can't silently drift
+// from the codes rpc.ts actually emits.
+const PERMANENT_GRPC_CODES = new Set<GrpcCode>([
+  GrpcCode.InvalidArgument,
+  GrpcCode.NotFound,
+  GrpcCode.AlreadyExists,
+  GrpcCode.PermissionDenied,
+  GrpcCode.FailedPrecondition,
+  GrpcCode.Unimplemented,
+  GrpcCode.Unauthenticated,
+])
+
+// The server accepts events per-event and reports the count (BatchCreateResponse.accepted). A
+// shortfall means it silently rejected some — surface it, since committing the batch erases those
+// events without a trace. The SDK leaves validation to the server (no client-side field checks),
+// so this warn is the only signal an operator gets that otherwise-valid track() calls are dropping.
+const warnIfPartiallyAccepted = (accepted: number, sent: number) => {
+  if (accepted < sent) {
+    log.warn(
+      `Server accepted ${accepted}/${sent} events; ${sent - accepted} were rejected and dropped. ` +
+        "Check event validity (kind must match ^[a-zA-Z0-9_.-]+$; custom-property keys must not start with '$').",
+    )
+  }
+}
 
 const isPermanentError = (err: unknown) => {
-  if (err instanceof ConnectError) {
+  if (err instanceof RpcError) {
     return PERMANENT_GRPC_CODES.has(err.code)
   }
-  // Non-ConnectError errors (TypeError, SyntaxError, etc.) indicate code or
+  // Non-RpcError errors (TypeError, SyntaxError, etc.) indicate code or
   // data bugs that retrying cannot fix. Treat them as permanent to avoid
   // poison events stalling the entire queue in an infinite retry loop.
   return true
@@ -247,7 +268,10 @@ export const createBatchedTransport = (
 
     inner
       .sendBatch(batch)
-      .then(storage.commit)
+      .then(res => {
+        warnIfPartiallyAccepted(res.accepted, batch.length)
+        storage.commit()
+      })
       .catch(err => {
         if (isPermanentError(err)) {
           storage.commit()
@@ -312,7 +336,8 @@ export const createBatchedTransport = (
       }
       if (options?.immediate) {
         try {
-          await inner.send(event)
+          const res = await inner.send(event)
+          warnIfPartiallyAccepted(res.accepted, 1)
         } catch (err) {
           if (isPermanentError(err)) {
             log.error('Permanent error sending event, dropping:', err)

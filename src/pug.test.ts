@@ -27,9 +27,7 @@ const transportSpies = {
   destroy: vi.fn(),
 }
 
-const profilesClientSpies = {
-  identify: vi.fn(() => Promise.resolve({})),
-}
+const unaryCallSpy = vi.fn(() => Promise.resolve({}))
 
 const trackerSpies = {
   pageView: vi.fn(() => cleanupSpies.pageView),
@@ -44,12 +42,10 @@ vi.mock('./batch.js', () => ({
   createBatchedTransport: vi.fn(() => transportSpies),
 }))
 
-vi.mock('@connectrpc/connect', () => ({
-  createClient: vi.fn(() => profilesClientSpies),
-}))
-
-vi.mock('./api-transport.js', () => ({
-  createApiTransport: vi.fn(() => ({})),
+vi.mock('./rpc.js', () => ({
+  unaryCall: unaryCallSpy,
+  RpcError: class RpcError extends Error {},
+  ONE_SHOT_TIMEOUT_MS: 15000,
 }))
 
 vi.mock('./events/page_view.js', () => ({
@@ -108,7 +104,7 @@ beforeEach(() => {
   trackerSpies.rageClick.mockImplementation(() => cleanupSpies.rageClick)
   trackerSpies.deadClick.mockImplementation(() => cleanupSpies.deadClick)
   transportSpies.send.mockImplementation(() => Promise.resolve())
-  profilesClientSpies.identify.mockImplementation(() => Promise.resolve({}))
+  unaryCallSpy.mockImplementation(() => Promise.resolve({}))
   vi.mocked(isIdentified).mockReturnValue(false)
   localStorage.clear()
 })
@@ -340,7 +336,7 @@ describe('tracking consent', () => {
     init('project-id', { apiKey: 'api-key', autoCapture: false, trackingConsent: 'denied' })
 
     await expect(identify('user-1')).resolves.toBeUndefined()
-    expect(profilesClientSpies.identify).not.toHaveBeenCalled()
+    expect(unaryCallSpy).not.toHaveBeenCalled()
     expect(markIdentified).not.toHaveBeenCalled()
   })
 
@@ -468,8 +464,22 @@ describe('identify', () => {
     optInTracking()
     await identify('user-1')
 
-    expect(profilesClientSpies.identify).toHaveBeenCalledOnce()
+    expect(unaryCallSpy).toHaveBeenCalledOnce()
     expect(markIdentified).toHaveBeenCalledWith('user-1')
+  })
+
+  it('uses a longer-than-default timeout for the one-shot identify RPC', async () => {
+    vi.mocked(isIdentified).mockReturnValue(true)
+    const { identify, init, optInTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, trackingConsent: 'denied' })
+    optInTracking()
+    await identify('user-1')
+
+    // identify is a one-shot with no retry, so aborting a cold backend at the 5s batch default
+    // would permanently lose the call. It gets an explicit longer timeout instead.
+    const timeoutArg = unaryCallSpy.mock.calls[0][4]
+    expect(timeoutArg).toBeGreaterThan(5000)
   })
 
   it('does not throw on an invalid externalId', async () => {
@@ -478,13 +488,13 @@ describe('identify', () => {
     init('project-id', { apiKey: 'api-key', autoCapture: false })
 
     await expect(identify('')).resolves.toBeUndefined()
-    expect(profilesClientSpies.identify).not.toHaveBeenCalled()
+    expect(unaryCallSpy).not.toHaveBeenCalled()
     expect(logSpies.error).toHaveBeenCalledWith(expect.stringContaining('non-empty externalId'))
   })
 
   it('swallows RPC failures without throwing', async () => {
     vi.mocked(isIdentified).mockReturnValue(true)
-    profilesClientSpies.identify.mockImplementationOnce(() => Promise.reject(new Error('rpc down')))
+    unaryCallSpy.mockImplementationOnce(() => Promise.reject(new Error('rpc down')))
     const { identify, init } = await importPug()
 
     init('project-id', { apiKey: 'api-key', autoCapture: false })

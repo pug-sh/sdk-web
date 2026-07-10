@@ -1,7 +1,4 @@
 import { create } from '@bufbuild/protobuf'
-import { createValidator } from '@bufbuild/protovalidate'
-import { createClient } from '@connectrpc/connect'
-import { createApiTransport } from './api-transport.js'
 import {
   type AutoCaptureConfig,
   type AutoCaptureController,
@@ -23,6 +20,7 @@ import {
   markIdentified,
   resolveDistinctId,
 } from './profile.js'
+import { ONE_SHOT_TIMEOUT_MS, unaryCall } from './rpc.js'
 import {
   clearSession,
   configureSession,
@@ -99,24 +97,7 @@ interface PugState {
   readonly trackingConsent: TrackingConsentController
 }
 
-const validator = createValidator()
-
 let state: PugState | null = null
-
-type ProfilesClient = ReturnType<typeof createClient<typeof ProfilesSDKService>>
-
-let profilesClient: ProfilesClient | null = null
-
-const getProfilesClient = (): ProfilesClient => {
-  if (profilesClient) {
-    return profilesClient
-  }
-  if (!state) {
-    throw new Error('[Pug SDK] Cannot create profiles client: SDK not initialized')
-  }
-  profilesClient = createClient(ProfilesSDKService, createApiTransport(state.config.endpoint, state.apiKey))
-  return profilesClient
-}
 
 export const init = (projectId: string, options: InitOptions) => {
   if (typeof window === 'undefined') {
@@ -271,7 +252,6 @@ export const destroy = () => {
   destroySession()
   destroyProfile()
   configureUrlSanitizer(undefined)
-  profilesClient = null
 
   state = null
 }
@@ -294,8 +274,6 @@ export const reset = () => {
   } catch (err) {
     log.error('Failed to clear profile:', err)
   }
-  // profilesClient is intentionally preserved — it holds no per-user or per-session state,
-  // only the endpoint and API key from init().
 }
 
 /**
@@ -343,21 +321,14 @@ export const identify = async (externalId: string, traits?: Record<string, JsonV
       ...(deviceId && { deviceId }),
     })
 
-    const validation = validator.validate(IdentifyRequestSchema, req)
-    if (validation.kind !== 'valid') {
-      const detail =
-        validation.kind === 'invalid'
-          ? validation.violations.map(v => `${v.field}: ${v.message}`).join(', ')
-          : String(validation.error)
-      log.error(`Invalid identify request: ${detail}`)
-      return
-    }
-
     try {
-      const client = getProfilesClient()
-      await client.identify(req)
+      await unaryCall(state.config.endpoint, state.apiKey, ProfilesSDKService.method.identify, req, ONE_SHOT_TIMEOUT_MS)
       markIdentified(externalId)
     } catch (err) {
+      // The server is the sole validator (the SDK does no client-side field checks by design), so a
+      // rejection here is the only signal that a trait or externalId was invalid. Surface the error
+      // as-is: an RpcError carries the server's message plus a gRPC code with whatever field-level
+      // detail the server chose to include.
       log.error('Failed to identify:', err)
     }
   } catch (err) {

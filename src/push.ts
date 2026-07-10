@@ -1,13 +1,10 @@
 import { create, type JsonObject } from '@bufbuild/protobuf'
-import { createValidator } from '@bufbuild/protovalidate'
-import { createClient } from '@connectrpc/connect'
-import { createApiTransport } from './api-transport.js'
 import { DevicesService, SubscribeRequestSchema } from './gen/sdk/devices/v1/devices_pb.js'
 import { log } from './logger.js'
+import { ONE_SHOT_TIMEOUT_MS, unaryCall } from './rpc.js'
 import type { JsonValue, TrackFn, WellKnownEventName } from './track.js'
 import { DEVICE_ID_KEY, isStorageAvailable, urlBase64ToUint8Array } from './utils.js'
 
-const validator = createValidator()
 const DEFAULT_SW_PATH = '/pug_sw.js'
 const SW_ACTIVATE_TIMEOUT_MS = 10_000
 
@@ -141,9 +138,6 @@ export const subscribePush = async (vapidPublicKey: string, options: PushOptions
   const deviceId = getOrCreateDeviceId()
   const pushToken = JSON.stringify(subscription.toJSON())
 
-  const transport = createApiTransport(options.endpoint, options.apiKey)
-  const devicesClient = createClient(DevicesService, transport)
-
   const request = create(SubscribeRequestSchema, {
     deviceId,
     platform: 'web',
@@ -153,18 +147,11 @@ export const subscribePush = async (vapidPublicKey: string, options: PushOptions
     ...(options.properties && { properties: options.properties }),
   })
 
-  // subscribePush throws on validation failure (critical operation), unlike toEvent which
-  // drops invalid events with an error log (best-effort, respecting the "track() must never throw" invariant).
-  const result = validator.validate(SubscribeRequestSchema, request)
-  if (result.kind !== 'valid') {
-    const detail =
-      result.kind === 'invalid'
-        ? result.violations.map(v => `${v.field}: ${v.message}`).join(', ')
-        : String(result.error)
-    throw new Error(`[Pug SDK] Invalid subscribe request: ${detail}`)
-  }
-
-  await devicesClient.subscribe(request)
+  // subscribePush is a critical operation, so a server rejection (invalid request) throws an
+  // RpcError — unlike toEvent, which drops invalid events with an error log to honor the
+  // "track() must never throw" invariant. It's a one-shot with no retry, so it gets the longer
+  // one-shot timeout rather than the 5s batch default (a slow push service must not abort at 5s).
+  await unaryCall(options.endpoint, options.apiKey, DevicesService.method.subscribe, request, ONE_SHOT_TIMEOUT_MS)
 }
 
 export const eventNotificationClick = 'notification_clicked' satisfies WellKnownEventName

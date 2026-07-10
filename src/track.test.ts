@@ -17,21 +17,36 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('schema-driven path (well-known events)', () => {
-  it('preserves int-vs-double schema intent: integer JS number on double field → doubleValue', () => {
+// Well-known event names are a compile-time typing affordance only — there is no runtime
+// schema, so a well-known name serializes through the exact same JS heuristic as a custom
+// event. These tests lock in that runtime behavior (esp. int-vs-double, which the backend
+// coalesces — see docs/ and the sdk-web bundle-size work).
+describe('well-known event names (runtime heuristic, no schema)', () => {
+  it('serializes an integer on a well-known numeric field as intValue (schema no longer forces double)', () => {
     const ev = toEvent(PROJECT_ID, 'purchase', SESSION_ID, DISTINCT_ID, {
       productId: 'sku-1',
       amount: 5,
       currency: 'USD',
     })
     expect(ev).not.toBeNull()
-    expect(ev!.customProperties.amount?.value.case).toBe('doubleValue')
-    expect(ev!.customProperties.amount?.value.value).toBe(5)
+    // 5 is a safe integer → intValue. The backend reads Int64 and Float64 slots together.
+    expect(ev!.customProperties.amount?.value.case).toBe('intValue')
+    expect(ev!.customProperties.amount?.value.value).toBe(5n)
     expect(ev!.customProperties.productId?.value.case).toBe('stringValue')
     expect(ev!.customProperties.currency?.value.case).toBe('stringValue')
   })
 
-  it('preserves explicitly set 0 on int32 field (explicit presence via reflect.isSet)', () => {
+  it('serializes a fractional value on the same field as doubleValue', () => {
+    const ev = toEvent(PROJECT_ID, 'purchase', SESSION_ID, DISTINCT_ID, {
+      productId: 'sku-1',
+      amount: 5.5,
+      currency: 'USD',
+    })
+    expect(ev!.customProperties.amount?.value.case).toBe('doubleValue')
+    expect(ev!.customProperties.amount?.value.value).toBe(5.5)
+  })
+
+  it('includes an explicitly passed 0 and maps only the keys the caller provided', () => {
     const ev = toEvent(PROJECT_ID, 'scroll', SESSION_ID, DISTINCT_ID, { percent: 0, scrollY: 250 })
     expect(ev).not.toBeNull()
     expect(ev!.customProperties.percent?.value.case).toBe('intValue')
@@ -39,7 +54,7 @@ describe('schema-driven path (well-known events)', () => {
     expect(ev!.customProperties.scrollY?.value.value).toBe(250n)
   })
 
-  it('omits unset optional fields from customProperties', () => {
+  it('does not fabricate unset fields', () => {
     const ev = toEvent(PROJECT_ID, 'click', SESSION_ID, DISTINCT_ID, { tag: 'button' })
     expect(ev).not.toBeNull()
     expect(ev!.customProperties.tag?.value.case).toBe('stringValue')
@@ -49,24 +64,26 @@ describe('schema-driven path (well-known events)', () => {
     expect(ev!.customProperties.y).toBeUndefined()
   })
 
-  it('drops the entire event when a known field violates schema constraints', () => {
+  it('builds the event even when a value would violate a server-side constraint (server is the authority)', () => {
     const ev = toEvent(PROJECT_ID, 'purchase', SESSION_ID, DISTINCT_ID, {
       productId: 'sku',
-      amount: -1, // violates double.gt = 0
+      amount: -1, // would violate double.gt = 0 server-side
       currency: 'USD',
     })
-    expect(ev).toBeNull()
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('properties validation failed'), expect.anything())
+    expect(ev).not.toBeNull()
+    expect(ev!.customProperties.amount?.value.case).toBe('intValue')
+    expect(ev!.customProperties.amount?.value.value).toBe(-1n)
+    expect(errorSpy).not.toHaveBeenCalled()
   })
 
-  it('passes extras (unknown keys) through the JS heuristic', () => {
+  it('serializes every provided prop — a well-known name gets no special-casing', () => {
     const ev = toEvent(PROJECT_ID, 'click', SESSION_ID, DISTINCT_ID, { tag: 'button', extraNote: 'hello' })
     expect(ev!.customProperties.tag?.value.case).toBe('stringValue')
     expect(ev!.customProperties.extraNote?.value.case).toBe('stringValue')
     expect(ev!.customProperties.extraNote?.value.value).toBe('hello')
   })
 
-  it('drops extras with non-serializable types (function/symbol/undefined) and warns per key', () => {
+  it('warns per key on function/symbol values and silently drops undefined', () => {
     const ev = toEvent(PROJECT_ID, 'click', SESSION_ID, DISTINCT_ID, {
       tag: 'button',
       cb: () => {},
@@ -78,15 +95,9 @@ describe('schema-driven path (well-known events)', () => {
     expect(ev!.customProperties.cb).toBeUndefined()
     expect(ev!.customProperties.sym).toBeUndefined()
     expect(ev!.customProperties.gone).toBeUndefined()
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Extra property "cb" on event "click" has non-serializable type function'),
-    )
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Extra property "sym" on event "click" has non-serializable type symbol'),
-    )
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Extra property "gone" on event "click" has non-serializable type undefined'),
-    )
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"cb" on event "click" not representable (function)'))
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"sym" on event "click" not representable (symbol)'))
+    // `gone: undefined` is dropped silently (common + unactionable), same as custom events.
   })
 })
 

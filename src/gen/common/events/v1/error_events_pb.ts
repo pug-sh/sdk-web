@@ -4,7 +4,6 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import { file_buf_validate_validate } from "../../../buf/validate/validate_pb.js";
 import { file_common_events_v1_options } from "./options_pb.js";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +11,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file common/events/v1/error_events.proto.
  */
 export const file_common_events_v1_error_events: GenFile = /*@__PURE__*/
-  fileDesc("CiNjb21tb24vZXZlbnRzL3YxL2Vycm9yX2V2ZW50cy5wcm90bxIQY29tbW9uLmV2ZW50cy52MSKaAQoXRXJyb3JPY2N1cnJlZFByb3BlcnRpZXMSGgoKZXJyb3JfY29kZRgBIAEoCUIGukgDyAEBEhUKB21lc3NhZ2UYAiABKAlCBIi1GAESEAoIc2V2ZXJpdHkYAyABKAkSEQoJdW5oYW5kbGVkGAQgASgIEhMKBXN0YWNrGAUgASgJQgSItRgBOhKCtRgOZXJyb3Jfb2NjdXJyZWRCSlpIZ2l0aHViLmNvbS9wdWctc2gvcHVnL2ludGVybmFsL2dlbi9wcm90by9jb21tb24vZXZlbnRzL3YxO2NvbW1vbmV2ZW50c3YxYghlZGl0aW9uc3DoBw", [file_buf_validate_validate, file_common_events_v1_options]);
+  fileDesc("CiNjb21tb24vZXZlbnRzL3YxL2Vycm9yX2V2ZW50cy5wcm90bxIQY29tbW9uLmV2ZW50cy52MSKaAQoXRXJyb3JPY2N1cnJlZFByb3BlcnRpZXMSGgoKZXJyb3JfY29kZRgBIAEoCUIGukgDyAEBEhUKB21lc3NhZ2UYAiABKAlCBIi1GAESEAoIc2V2ZXJpdHkYAyABKAkSEQoJdW5oYW5kbGVkGAQgASgIEhMKBXN0YWNrGAUgASgJQgSItRgBOhKCtRgOZXJyb3Jfb2NjdXJyZWRCSlpIZ2l0aHViLmNvbS9wdWctc2gvcHVnL2ludGVybmFsL2dlbi9wcm90by9jb21tb24vZXZlbnRzL3YxO2NvbW1vbmV2ZW50c3YxYghlZGl0aW9uc3DoBw", [file_common_events_v1_options]);
 
 /**
  * Common severity values: "info", "warning", "error", "fatal".

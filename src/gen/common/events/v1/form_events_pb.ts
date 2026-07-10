@@ -4,7 +4,6 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import { file_buf_validate_validate } from "../../../buf/validate/validate_pb.js";
 import { file_common_events_v1_options } from "./options_pb.js";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +11,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file common/events/v1/form_events.proto.
  */
 export const file_common_events_v1_form_events: GenFile = /*@__PURE__*/
-  fileDesc("CiJjb21tb24vZXZlbnRzL3YxL2Zvcm1fZXZlbnRzLnByb3RvEhBjb21tb24uZXZlbnRzLnYxIlEKE0Zvcm1TdGFydFByb3BlcnRpZXMSFwoHZm9ybV9pZBgBIAEoCUIGukgDyAEBEhEKCWZvcm1fbmFtZRgCIAEoCToOgrUYCmZvcm1fc3RhcnQiYwoURm9ybVN1Ym1pdFByb3BlcnRpZXMSFwoHZm9ybV9pZBgBIAEoCUIGukgDyAEBEhEKCWZvcm1fbmFtZRgCIAEoCRIOCgZhY3Rpb24YAyABKAk6D4K1GAtmb3JtX3N1Ym1pdEJKWkhnaXRodWIuY29tL3B1Zy1zaC9wdWcvaW50ZXJuYWwvZ2VuL3Byb3RvL2NvbW1vbi9ldmVudHMvdjE7Y29tbW9uZXZlbnRzdjFiCGVkaXRpb25zcOgH", [file_buf_validate_validate, file_common_events_v1_options]);
+  fileDesc("CiJjb21tb24vZXZlbnRzL3YxL2Zvcm1fZXZlbnRzLnByb3RvEhBjb21tb24uZXZlbnRzLnYxIlEKE0Zvcm1TdGFydFByb3BlcnRpZXMSFwoHZm9ybV9pZBgBIAEoCUIGukgDyAEBEhEKCWZvcm1fbmFtZRgCIAEoCToOgrUYCmZvcm1fc3RhcnQiYwoURm9ybVN1Ym1pdFByb3BlcnRpZXMSFwoHZm9ybV9pZBgBIAEoCUIGukgDyAEBEhEKCWZvcm1fbmFtZRgCIAEoCRIOCgZhY3Rpb24YAyABKAk6D4K1GAtmb3JtX3N1Ym1pdEJKWkhnaXRodWIuY29tL3B1Zy1zaC9wdWcvaW50ZXJuYWwvZ2VuL3Byb3RvL2NvbW1vbi9ldmVudHMvdjE7Y29tbW9uZXZlbnRzdjFiCGVkaXRpb25zcOgH", [file_common_events_v1_options]);
 
 /**
  * @generated from message common.events.v1.FormStartProperties

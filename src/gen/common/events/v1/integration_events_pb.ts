@@ -4,7 +4,6 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import { file_buf_validate_validate } from "../../../buf/validate/validate_pb.js";
 import { file_common_events_v1_options } from "./options_pb.js";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +11,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file common/events/v1/integration_events.proto.
  */
 export const file_common_events_v1_integration_events: GenFile = /*@__PURE__*/
-  fileDesc("Ciljb21tb24vZXZlbnRzL3YxL2ludGVncmF0aW9uX2V2ZW50cy5wcm90bxIQY29tbW9uLmV2ZW50cy52MSJ1Ch5JbnRlZ3JhdGlvbkNvbm5lY3RlZFByb3BlcnRpZXMSFgoOaW50ZWdyYXRpb25faWQYASABKAkSIAoQaW50ZWdyYXRpb25fdHlwZRgCIAEoCUIGukgDyAEBOhmCtRgVaW50ZWdyYXRpb25fY29ubmVjdGVkIosBCiFJbnRlZ3JhdGlvbkRpc2Nvbm5lY3RlZFByb3BlcnRpZXMSFgoOaW50ZWdyYXRpb25faWQYASABKAkSIAoQaW50ZWdyYXRpb25fdHlwZRgCIAEoCUIGukgDyAEBEg4KBnJlYXNvbhgDIAEoCTocgrUYGGludGVncmF0aW9uX2Rpc2Nvbm5lY3RlZEJKWkhnaXRodWIuY29tL3B1Zy1zaC9wdWcvaW50ZXJuYWwvZ2VuL3Byb3RvL2NvbW1vbi9ldmVudHMvdjE7Y29tbW9uZXZlbnRzdjFiCGVkaXRpb25zcOgH", [file_buf_validate_validate, file_common_events_v1_options]);
+  fileDesc("Ciljb21tb24vZXZlbnRzL3YxL2ludGVncmF0aW9uX2V2ZW50cy5wcm90bxIQY29tbW9uLmV2ZW50cy52MSJ1Ch5JbnRlZ3JhdGlvbkNvbm5lY3RlZFByb3BlcnRpZXMSFgoOaW50ZWdyYXRpb25faWQYASABKAkSIAoQaW50ZWdyYXRpb25fdHlwZRgCIAEoCUIGukgDyAEBOhmCtRgVaW50ZWdyYXRpb25fY29ubmVjdGVkIosBCiFJbnRlZ3JhdGlvbkRpc2Nvbm5lY3RlZFByb3BlcnRpZXMSFgoOaW50ZWdyYXRpb25faWQYASABKAkSIAoQaW50ZWdyYXRpb25fdHlwZRgCIAEoCUIGukgDyAEBEg4KBnJlYXNvbhgDIAEoCTocgrUYGGludGVncmF0aW9uX2Rpc2Nvbm5lY3RlZEJKWkhnaXRodWIuY29tL3B1Zy1zaC9wdWcvaW50ZXJuYWwvZ2VuL3Byb3RvL2NvbW1vbi9ldmVudHMvdjE7Y29tbW9uZXZlbnRzdjFiCGVkaXRpb25zcOgH", [file_common_events_v1_options]);
 
 /**
  * @generated from message common.events.v1.IntegrationConnectedProperties
