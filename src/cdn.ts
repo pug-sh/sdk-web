@@ -1,5 +1,5 @@
-// CDN entry — bundled by esbuild (scripts/build-cdn.mjs) into the IIFE served from jsDelivr as
-// dist/cdn/pug.min.js. Installs the public API on `window.pug`, replays calls queued by the loader
+// CDN entry — bundled by esbuild (scripts/build-cdn.mjs) into the IIFE served from cdn.pugs.dev
+// (Cloudflare R2; jsDelivr is an npm-backed fallback) as dist/cdn/pug.min.js. Installs the public API on `window.pug`, replays calls queued by the loader
 // snippet, and auto-inits from data attributes for the one-tag install. Not part of the ESM
 // package surface (unreachable via the exports map): importing the SDK stays side-effect free —
 // only executing this file as a script installs the global.

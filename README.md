@@ -13,7 +13,7 @@ npm install @pug-sh/browser
 <details>
 <summary>Loader snippet and one-tag install</summary>
 
-No bundler? Load the SDK from jsDelivr with the loader snippet — paste it into `<head>`. It fetches a single self-contained file (the whole SDK in one request), and exposes the full npm API on `window.pug`. Calls made before the script loads (`init`, `track`, consent changes) are queued and replayed in order once it arrives:
+No bundler? Load the SDK from the Pug CDN (`cdn.pugs.dev`) with the loader snippet — paste it into `<head>`. It fetches a single self-contained file (the whole SDK in one request), and exposes the full npm API on `window.pug`. Calls made before the script loads are queued and replayed in order after it arrives; calls queued before the first `init` are dropped:
 
 ```html
 <script>
@@ -28,7 +28,7 @@ No bundler? Load the SDK from jsDelivr with the loader snippet — paste it into
     });
     var s = d.createElement('script');
     s.async = true;
-    s.src = 'https://cdn.jsdelivr.net/npm/@pug-sh/browser@0.0.3/dist/cdn/pug.min.js';
+    s.src = 'https://cdn.pugs.dev/v0.0.3/pug.min.js';
     s.onerror = function () { console.warn('[Pug SDK] Failed to load ' + s.src); };
     d.head.appendChild(s);
   })(window, document);
@@ -42,7 +42,7 @@ Always call `pug.init()` first in the snippet — the SDK drops calls made befor
 ```html
 <script
   async
-  src="https://cdn.jsdelivr.net/npm/@pug-sh/browser@0.0.3/dist/cdn/pug.min.js"
+  src="https://cdn.pugs.dev/v0.0.3/pug.min.js"
   data-project-id="your-project-id"
   data-api-key="your-api-key"
   data-options='{"trackingConsent":{"default":"denied","persist":true}}'

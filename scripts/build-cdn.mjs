@@ -7,11 +7,11 @@
 // dependency regression cannot ship silently; raising the budget is a deliberate, reviewable
 // change to the constant below. Also writes a pug.min.js.LEGAL.txt sidecar attributing every
 // bundled runtime dependency (Apache-2.0 §4 attribution), shipped via the package `files` allowlist.
-import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 import { build } from 'esbuild'
 import { backfillLegalNotices } from './legal.mjs'
+import { sriHash } from './publish-cdn.lib.mjs'
 
 const GZIP_BUDGET_KB = 45
 
@@ -43,7 +43,7 @@ writeFileSync(legalPath, legal)
 
 const min = readFileSync('dist/cdn/pug.min.js')
 const gzipBytes = gzipSync(min, { level: 9 }).length
-const sri = `sha384-${createHash('sha384').update(min).digest('base64')}`
+const sri = sriHash(min)
 console.log(`dist/cdn/pug.min.js  ${min.length} B raw  ${gzipBytes} B gzip  SRI ${sri}`)
 
 if (gzipBytes > GZIP_BUDGET_KB * 1024) {

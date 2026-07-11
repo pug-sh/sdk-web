@@ -462,7 +462,7 @@ describe('loader snippet fixture', () => {
   it('every documented exact-pin URL matches the package.json version', () => {
     const { version } = JSON.parse(readDoc('../package.json')) as { version: string }
     for (const path of ['../README.md']) {
-      const pins = [...readDoc(path).matchAll(/@pug-sh\/browser@(\d+\.\d+\.\d+)/g)].map(m => m[1])
+      const pins = [...readDoc(path).matchAll(/cdn\.pugs\.dev\/v(\d+\.\d+\.\d+)\/pug\.min\.js/g)].map(m => m[1])
       expect(pins.length, `expected at least one pinned URL in ${path}`).toBeGreaterThan(0)
       for (const pin of pins) {
         // RELEASING.md step: bump the pinned snippet URLs together with the version.
@@ -487,9 +487,7 @@ describe('loader snippet fixture', () => {
     // It injects one async script pointing at the versioned CDN bundle, with a load-failure breadcrumb.
     expect(fakeDoc.appended).toHaveLength(1)
     expect(fakeDoc.appended[0].async).toBe(true)
-    expect(fakeDoc.appended[0].src).toMatch(
-      /^https:\/\/cdn\.jsdelivr\.net\/npm\/@pug-sh\/browser@\d+\.\d+\.\d+\/dist\/cdn\/pug\.min\.js$/,
-    )
+    expect(fakeDoc.appended[0].src).toMatch(/^https:\/\/cdn\.pugs\.dev\/v\d+\.\d+\.\d+\/pug\.min\.js$/)
     expect(typeof fakeDoc.appended[0].onerror).toBe('function')
 
     // Re-running the snippet (double paste) is a no-op.

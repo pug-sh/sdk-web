@@ -85,3 +85,6 @@ pr-review.md
 docs/superpowers
 # Codegen temp (make typed-events)
 .codegen-tmp/
+
+# Wrangler local state/cache (wrangler may create this in the repo root on any invocation)
+.wrangler/
