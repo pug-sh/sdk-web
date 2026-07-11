@@ -42,8 +42,6 @@ Always call `pug.init()` first in the snippet — the SDK drops calls made befor
   data-options='{"trackingConsent":{"default":"denied","persist":true}}'></script>
 ```
 
-See [docs/cdn.md](./docs/cdn.md) for queue semantics, consent/CMP integration, version pinning + SRI, and CSP notes.
-
 ## Usage
 
 ### Analytics

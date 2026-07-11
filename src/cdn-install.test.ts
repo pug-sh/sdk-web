@@ -461,7 +461,7 @@ describe('loader snippet fixture', () => {
 
   it('every documented exact-pin URL matches the package.json version', () => {
     const { version } = JSON.parse(readDoc('../package.json')) as { version: string }
-    for (const path of ['../README.md', '../docs/cdn.md']) {
+    for (const path of ['../README.md']) {
       const pins = [...readDoc(path).matchAll(/@pug-sh\/browser@(\d+\.\d+\.\d+)/g)].map(m => m[1])
       expect(pins.length, `expected at least one pinned URL in ${path}`).toBeGreaterThan(0)
       for (const pin of pins) {
@@ -472,11 +472,6 @@ describe('loader snippet fixture', () => {
   })
 
   it('the documented snippet builds a working stub that the bundle can install over', () => {
-    const readmeSnippet = extractSnippet('../README.md')
-    const docsSnippet = extractSnippet('../docs/cdn.md')
-    // The snippet is frozen into customer sites — every documented copy must be identical.
-    expect(docsSnippet).toBe(readmeSnippet)
-
     const { fakeDoc, w, runSnippet } = runSnippetOnFreshPage()
 
     // Stub shape the bundle relies on: exactly the STUB_METHODS plus queue bookkeeping.

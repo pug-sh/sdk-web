@@ -3,7 +3,7 @@ import { log } from './logger.js'
 /**
  * Every method the loader snippet stubs and `cdn.ts` installs on `window.pug` — the single source
  * of truth for the copies that must agree: the `api` object in `cdn.ts` (enforced at compile time
- * via `satisfies`), the snippet's method string in README.md/docs/cdn.md (enforced by the snippet
+ * via `satisfies`), the snippet's method string in README.md (enforced by the snippet
  * fixture test), and the test expectations.
  */
 export const STUB_METHODS = [
