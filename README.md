@@ -37,9 +37,13 @@ No bundler? Load the SDK from jsDelivr with the loader snippet — paste it into
 Always call `pug.init()` first in the snippet — the SDK drops calls made before init. To keep the page free of inline JavaScript (e.g. under a strict CSP), use the one-tag install instead:
 
 ```html
-<script async src="https://cdn.jsdelivr.net/npm/@pug-sh/browser@0.0.3/dist/cdn/pug.min.js"
-  data-project-id="your-project-id" data-api-key="your-api-key"
-  data-options='{"trackingConsent":{"default":"denied","persist":true}}'></script>
+<script
+  async
+  src="https://cdn.jsdelivr.net/npm/@pug-sh/browser@0.0.3/dist/cdn/pug.min.js"
+  data-project-id="your-project-id"
+  data-api-key="your-api-key"
+  data-options='{"trackingConsent":{"default":"denied","persist":true}}'
+></script>
 ```
 
 ## Usage
@@ -204,7 +208,7 @@ Sends a manual event. Custom event names are allowed:
 track('upgrade_clicked', { source: 'settings' })
 ```
 
-Well-known events are validated against typed property schemas:
+Well-known event names get typed, autocompleted properties:
 
 ```ts
 track('purchase', {
@@ -222,31 +226,10 @@ track('error_occurred', { errorCode: 'PAYMENT_FAILED' }, { immediate: true })
 
 ### Well-known events
 
-These event names get typed properties and runtime validation. Extra properties are allowed and are sent as custom properties.
+The SDK ships a large set of **well-known event names** with typed, autocompleted properties — pass one to `track()` and your editor completes and type-checks the payload. Any other string is accepted as a custom event.
 
-| Event | Properties |
-|---|---|
-| `page_view` | — |
-| `click` | `class`, `id`, `tag`, `text`, `x`, `y` |
-| `rage_click` | `clickCount` (>= 2), `element`, `x`, `y` |
-| `dead_click` | `element`, `text`, `x`, `y` |
-| `scroll` | `percent` (0–100), `scrollY` (>= 0) |
-| `search` | `query` (required) |
-| `add_to_cart` | `productId` (required), `amount` (> 0), `currency` (3-letter code, required when `amount` is set) |
-| `checkout_started` | `productId` (required), `amount` (> 0), `currency` (3-letter code, required when `amount` is set) |
-| `checkout_completed` | `productId` (required), `amount` (> 0), `currency` (3-letter code, required when `amount` is set) |
-| `purchase` | `productId` (required), `amount` (> 0), `currency` (3-letter code, required when `amount` is set) |
-| `form_start` | `formId` (required), `formName` |
-| `form_submit` | `action`, `formId` (required), `formName` |
-| `signup` | — |
-| `login` | — |
-| `logout` | — |
-| `app_open` | — |
-| `app_close` | — |
-| `notification_received` | `campaignId` (required), `notificationType` |
-| `notification_clicked` | `campaignId` (required), `notificationType` |
-| `notification_dismissed` | `campaignId` (required), `notificationType` |
-| `video_play` | `videoId` (required), `positionS` (>= 0) |
-| `video_pause` | `videoId` (required), `positionS` (>= 0) |
-| `error_occurred` | `errorCode` (required) |
-| `share` | — |
+Typing is **compile-time only**: at runtime every event takes the same path and the SDK does not validate properties client-side (field constraints are enforced server-side). Extra properties beyond the typed ones are always allowed and sent as custom properties.
+
+See **[WELL_KNOWN_EVENTS.md](./WELL_KNOWN_EVENTS.md)** for the full list — each event's properties, types, and server-side constraints — grouped into these domains:
+
+[API](./WELL_KNOWN_EVENTS.md#api) · [App](./WELL_KNOWN_EVENTS.md#app) · [Auth](./WELL_KNOWN_EVENTS.md#auth) · [Billing](./WELL_KNOWN_EVENTS.md#billing) · [Chat](./WELL_KNOWN_EVENTS.md#chat) · [Commerce](./WELL_KNOWN_EVENTS.md#commerce) · [Discovery](./WELL_KNOWN_EVENTS.md#discovery) · [Error](./WELL_KNOWN_EVENTS.md#error) · [File](./WELL_KNOWN_EVENTS.md#file) · [Form](./WELL_KNOWN_EVENTS.md#form) · [Integration](./WELL_KNOWN_EVENTS.md#integration) · [Invitation](./WELL_KNOWN_EVENTS.md#invitation) · [Media](./WELL_KNOWN_EVENTS.md#media) · [Navigation](./WELL_KNOWN_EVENTS.md#navigation) · [Notification](./WELL_KNOWN_EVENTS.md#notification) · [Social](./WELL_KNOWN_EVENTS.md#social) · [Support](./WELL_KNOWN_EVENTS.md#support) · [Workspace](./WELL_KNOWN_EVENTS.md#workspace)
