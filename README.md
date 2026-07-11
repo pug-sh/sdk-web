@@ -8,6 +8,49 @@ Browser-side analytics and event tracking for Pug. Auto-captures page views, cli
 npm install @pug-sh/browser
 ```
 
+### Script tag (CDN)
+
+<details>
+<summary>Loader snippet and one-tag install</summary>
+
+No bundler? Load the SDK from jsDelivr with the loader snippet — paste it into `<head>`. It fetches a single self-contained file (the whole SDK in one request), and exposes the full npm API on `window.pug`. Calls made before the script loads (`init`, `track`, consent changes) are queued and replayed in order once it arrives:
+
+```html
+<script>
+  !(function (w, d) {
+    if (w.pug) { if (!w.pug._q) console.warn('[Pug SDK] window.pug already defined by another script; not loaded.'); return; }
+    var q = [];
+    var pug = (w.pug = { _q: q, _v: 1 });
+    var methods = ('init track identify reset destroy setAutoCapture optInTracking optOutTracking ' +
+      'isTrackingEnabled getTrackingConsent rotate ready').split(' ');
+    methods.forEach(function (m) {
+      pug[m] = function () { if (q.length < 1000) q.push([m, [].slice.call(arguments)]); };
+    });
+    var s = d.createElement('script');
+    s.async = true;
+    s.src = 'https://cdn.jsdelivr.net/npm/@pug-sh/browser@0.0.3/dist/cdn/pug.min.js';
+    s.onerror = function () { console.warn('[Pug SDK] Failed to load ' + s.src); };
+    d.head.appendChild(s);
+  })(window, document);
+
+  pug.init('your-project-id', { apiKey: 'your-api-key' });
+</script>
+```
+
+Always call `pug.init()` first in the snippet — the SDK drops calls made before init. To keep the page free of inline JavaScript (e.g. under a strict CSP), use the one-tag install instead:
+
+```html
+<script
+  async
+  src="https://cdn.jsdelivr.net/npm/@pug-sh/browser@0.0.3/dist/cdn/pug.min.js"
+  data-project-id="your-project-id"
+  data-api-key="your-api-key"
+  data-options='{"trackingConsent":{"default":"denied","persist":true}}'
+></script>
+```
+
+</details>
+
 ## Usage
 
 ### Analytics
@@ -76,9 +119,15 @@ optOutTracking()
 | `endpoint` | `string` | `https://api.pugs.dev` | Backend base URL. |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
 | `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object enables only keys set to `true`. |
-| `trackingConsent` | `'granted' \| 'denied' \| { default?, persist? }` | `'granted'` | Tracking consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored. Object form: `default` is the first-run seed; `persist: true` persists the choice and restores it on the next `init()` — it rides the cross-subdomain cookie when active, so an opt-out applies on sibling subdomains. |
-| `crossSubdomainTracking` | `boolean \| { domain: string }` | `false` | **Off by default** — cross-subdomain identity relaxes browser same-origin isolation to the weaker same-site model, so it is an explicit opt-in. `false` keeps persistence origin-scoped in `localStorage`. `true` shares identity (anonymous ID, external ID, session, persisted consent) across subdomains via a first-party cookie on the registrable domain (e.g. `.example.com`), auto-discovered with a write-probe; it degrades to a host-only cookie on localhost and IP hosts, and to `localStorage` when cookies are blocked, and cookies set from HTTPS carry `Secure` (shared only among HTTPS subdomains). ⚠️ On a custom multi-tenant domain not on the [Public Suffix List](https://publicsuffix.org/) (e.g. `a.myplatform.com` and `b.myplatform.com` as separate tenants) the probe returns the shared `myplatform.com`, letting sibling tenants read each other's identity — use `{ domain }` to pin an explicit cookie domain there. Cross-subdomain sessions end by idle/max timeout only — the "rotate when all tabs closed" heuristic is origin-scoped and is disabled in this mode. |
-| `sanitizeUrl` | `(url: string) => string` | — | Redacts URLs before they leave the device — rewrites `$url`, `$referrer`, and captured form actions to mask routes or strip PII query params. Fails closed: throwing or returning a non-string drops the URL. See [Privacy controls](#privacy-controls). |
+| `trackingConsent` | `'granted' \| 'denied' \| TrackingConsentConfig` | `'granted'` | Initial consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored. Object form: `default` seeds the first run; `persist: true` remembers the choice across reloads. |
+| `crossSubdomainTracking` | `boolean \| { domain: string }` | `false` | **Off by default** — sharing identity across subdomains weakens browser isolation from same-origin to same-site, so it is an explicit opt-in. `false` keeps persistence origin-scoped in `localStorage`; `true` shares identity (anonymous ID, external ID, session, consent) across subdomains via a first-party cookie on the auto-discovered registrable domain, and `{ domain }` pins that cookie domain explicitly. See [Cross-subdomain tracking](#cross-subdomain-tracking) for fallback behavior and the multi-tenant caveat. |
+| `sanitizeUrl` | `(url: string) => string` | — | Rewrites outgoing URLs (`$url`, `$referrer`, form actions) before they're sent — e.g. to mask IDs or strip PII. See [Privacy controls](#privacy-controls). |
+
+#### Cross-subdomain tracking
+
+With `crossSubdomainTracking: true`, identity is written to a first-party cookie on the registrable domain (e.g. `.example.com`), auto-discovered with a write-probe. It degrades to a host-only cookie on localhost and IP hosts, and to `localStorage` when cookies are blocked; cookies set from HTTPS carry `Secure`, so identity is shared only among HTTPS subdomains. Sessions end by idle/max timeout only — the "rotate when all tabs closed" heuristic is origin-scoped and is disabled in this mode.
+
+**Warning:** on a custom multi-tenant domain not on the [Public Suffix List](https://publicsuffix.org/) (e.g. `a.myplatform.com` and `b.myplatform.com` as separate tenants), the write-probe returns the shared `myplatform.com`, letting sibling tenants read each other's identity — pin an explicit `{ domain }` there.
 
 ### Tracking consent API
 
@@ -170,7 +219,7 @@ Sends a manual event. Custom event names are allowed:
 track('upgrade_clicked', { source: 'settings' })
 ```
 
-Well-known events are validated against typed property schemas:
+Well-known event names get typed, autocompleted properties:
 
 ```ts
 track('purchase', {
@@ -188,31 +237,10 @@ track('error_occurred', { errorCode: 'PAYMENT_FAILED' }, { immediate: true })
 
 ### Well-known events
 
-These event names get typed properties and runtime validation. Extra properties are allowed and are sent as custom properties.
+The SDK ships a large set of **well-known event names** with typed, autocompleted properties — pass one to `track()` and your editor completes and type-checks the payload. Any other string is accepted as a custom event.
 
-| Event | Properties |
-|---|---|
-| `page_view` | — |
-| `click` | `class`, `id`, `tag`, `text`, `x`, `y` |
-| `rage_click` | `clickCount` (>= 2), `element`, `x`, `y` |
-| `dead_click` | `element`, `text`, `x`, `y` |
-| `scroll` | `percent` (0–100), `scrollY` (>= 0) |
-| `search` | `query` (required) |
-| `add_to_cart` | `productId` (required), `amount` (> 0), `currency` (3-letter code, required when `amount` is set) |
-| `checkout_started` | `productId` (required), `amount` (> 0), `currency` (3-letter code, required when `amount` is set) |
-| `checkout_completed` | `productId` (required), `amount` (> 0), `currency` (3-letter code, required when `amount` is set) |
-| `purchase` | `productId` (required), `amount` (> 0), `currency` (3-letter code, required when `amount` is set) |
-| `form_start` | `formId` (required), `formName` |
-| `form_submit` | `action`, `formId` (required), `formName` |
-| `signup` | — |
-| `login` | — |
-| `logout` | — |
-| `app_open` | — |
-| `app_close` | — |
-| `notification_received` | `campaignId` (required), `notificationType` |
-| `notification_clicked` | `campaignId` (required), `notificationType` |
-| `notification_dismissed` | `campaignId` (required), `notificationType` |
-| `video_play` | `videoId` (required), `positionS` (>= 0) |
-| `video_pause` | `videoId` (required), `positionS` (>= 0) |
-| `error_occurred` | `errorCode` (required) |
-| `share` | — |
+Typing is **compile-time only**: at runtime every event takes the same path and the SDK does not validate properties client-side (field constraints are enforced server-side). Extra properties beyond the typed ones are always allowed and sent as custom properties.
+
+See **[WELL_KNOWN_EVENTS.md](./WELL_KNOWN_EVENTS.md)** for the full list — each event's properties, types, and server-side constraints — grouped into these domains:
+
+[API](./WELL_KNOWN_EVENTS.md#api) · [App](./WELL_KNOWN_EVENTS.md#app) · [Auth](./WELL_KNOWN_EVENTS.md#auth) · [Billing](./WELL_KNOWN_EVENTS.md#billing) · [Chat](./WELL_KNOWN_EVENTS.md#chat) · [Commerce](./WELL_KNOWN_EVENTS.md#commerce) · [Discovery](./WELL_KNOWN_EVENTS.md#discovery) · [Error](./WELL_KNOWN_EVENTS.md#error) · [File](./WELL_KNOWN_EVENTS.md#file) · [Form](./WELL_KNOWN_EVENTS.md#form) · [Integration](./WELL_KNOWN_EVENTS.md#integration) · [Invitation](./WELL_KNOWN_EVENTS.md#invitation) · [Media](./WELL_KNOWN_EVENTS.md#media) · [Navigation](./WELL_KNOWN_EVENTS.md#navigation) · [Notification](./WELL_KNOWN_EVENTS.md#notification) · [Social](./WELL_KNOWN_EVENTS.md#social) · [Support](./WELL_KNOWN_EVENTS.md#support) · [Workspace](./WELL_KNOWN_EVENTS.md#workspace)

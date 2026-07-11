@@ -1,6 +1,6 @@
 # Examples
 
-Runnable examples for the Pug Web SDK. Each imports the built SDK from `dist/`, so build first:
+Runnable examples for the Pug Web SDK. Each loads the built single-file bundle (`dist/cdn/pug.min.js`) as `window.pug` — one request, no module-per-file waterfall — so build first:
 
 ```bash
 bun run build

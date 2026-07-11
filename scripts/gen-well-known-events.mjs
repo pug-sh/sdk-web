@@ -1,20 +1,30 @@
-import { readdirSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { getExtension } from '@bufbuild/protobuf'
 
-// Builds src/well-known-events.generated.ts — a TYPE-ONLY registry mapping every web
-// well-known event name to its protobuf *PropertiesSchema *type*. It introspects the
-// schemas from a throwaway compile of src/gen produced by `make typed-events`
-// (tsc -p tsconfig.gen.json -> .codegen-tmp). We import that compiled JS rather than
-// the src/gen .ts source because node can't load protobuf-es's TS enums or its
-// .js-extension relative imports directly. src/gen (vendored from proto/) is the single
-// source of truth — nothing here reaches the Buf Schema Registry.
+// Builds two artifacts from the vendored protos, both from a single discovery pass so
+// they can never disagree on the event set:
 //
-// The output is emitted with `import type`, so it contributes ZERO runtime code: the
+//   1. src/well-known-events.generated.ts — a TYPE-ONLY registry mapping every web
+//      well-known event name to its protobuf *PropertiesSchema *type*.
+//   2. WELL_KNOWN_EVENTS.md — the human reference (linked from README), listing every
+//      web event with its property names, JS types, and server-side constraints.
+//
+// It introspects the schemas from a throwaway compile of src/gen produced by
+// `make typed-events` (tsc -p tsconfig.gen.json -> .codegen-tmp). We import that
+// compiled JS rather than the src/gen .ts source because node can't load protobuf-es's
+// TS enums or its .js-extension relative imports directly. src/gen (vendored from
+// proto/) is the single source of truth — nothing here reaches the Buf Schema Registry.
+//
+// The .ts output is emitted with `import type`, so it contributes ZERO runtime code: the
 // schema descriptors are used only for compile-time typing (track() autocomplete +
 // prop type-checking) and never reach the browser bundle. At runtime, well-known and
 // custom events share the single heuristic property-mapping path in track.ts.
+//
+// The .md's constraints (required / ranges / currency pattern) are read from the proto
+// *source text*, not the descriptors: buf.validate is stripped from src/gen (see
+// scripts/strip-validate-deps.mjs), so the constraints survive only in proto/.
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '..')
@@ -50,7 +60,7 @@ for (const mod of EVENT_MODULES) {
     const k = getExtension(opts, kind)
     if (!k) continue
     if (!isForThisPlatform(getExtension(opts, platforms))) continue
-    entries.push({ kind: k, module: mod, schema: name })
+    entries.push({ kind: k, module: mod, schema: name, desc: schema })
   }
 }
 
@@ -92,3 +102,143 @@ ${mapBlock}
 const outPath = join(repoRoot, 'src', 'well-known-events.generated.ts')
 writeFileSync(outPath, fileContent)
 console.log(`Wrote ${entries.length} well-known events to ${outPath}`)
+
+// ---------------------------------------------------------------------------
+// WELL_KNOWN_EVENTS.md — the human reference.
+// ---------------------------------------------------------------------------
+
+const PROTO_DIR = join(repoRoot, 'proto', 'common', 'events', 'v1')
+
+// Parse buf.validate constraints straight from the proto source, keyed by event kind →
+// snake field name. The descriptors can't be used here: buf.validate is stripped from
+// src/gen, so the constraints live only in the proto text.
+const parseConstraints = () => {
+  const byKind = new Map()
+  for (const mod of EVENT_MODULES) {
+    let text = readFileSync(join(PROTO_DIR, `${mod}.proto`), 'utf8')
+    // Collapse the multi-line `int32 = { gte: A lte: B }` range form onto one token so the
+    // line-based scan below sees a single field statement.
+    text = text.replace(/\.int32\s*=\s*\{\s*gte:\s*(-?\d+)\s*lte:\s*(-?\d+)\s*\}/g, '.int32range($1,$2)')
+    let kind = null // reset per message; only set once its (kind) option is seen
+    for (let line of text.split('\n')) {
+      line = line.replace(/\/\/.*$/, '')
+      if (/^\s*message\s+\w+/.test(line)) {
+        kind = null
+        continue
+      }
+      const mKind = line.match(/\(common\.events\.v1\.kind\)\s*=\s*"([^"]+)"/)
+      if (mKind) {
+        kind = mKind[1]
+        if (!byKind.has(kind)) byKind.set(kind, new Map())
+        continue
+      }
+      if (!kind) continue
+      const mField = line.match(/^\s*(?:repeated\s+)?[\w.]+\s+(\w+)\s*=\s*\d+\s*(.*?);\s*$/)
+      if (!mField) continue
+      const [, fname, rest] = mField
+      const notes = []
+      let m
+      if ((m = rest.match(/\.int32range\((-?\d+),(-?\d+)\)/))) notes.push(`${m[1]}–${m[2]}`)
+      if ((m = rest.match(/\.[a-z0-9]+\.gt\s*=\s*(-?\d+)/))) notes.push(`>${m[1]}`)
+      if ((m = rest.match(/\.[a-z0-9]+\.gte\s*=\s*(-?\d+)/))) notes.push(`≥${m[1]}`)
+      if ((m = rest.match(/\.[a-z0-9]+\.lt\s*=\s*(-?\d+)/))) notes.push(`<${m[1]}`)
+      if ((m = rest.match(/\.[a-z0-9]+\.lte\s*=\s*(-?\d+)/))) notes.push(`≤${m[1]}`)
+      if (/\.string\.pattern\s*=\s*"\^\[A-Z\]\{3\}\$"/.test(rest)) notes.push('ISO-4217')
+      else if ((m = rest.match(/\.string\.pattern\s*=\s*"([^"]+)"/)))
+        notes.push(`matches /${m[1].replace(/\|/g, '\\|')}/`)
+      if (/\.duration\.gte\s*=\s*\{\s*seconds:\s*0\s*\}/.test(rest)) notes.push('≥0s')
+      byKind.get(kind).set(fname, { required: /\.required\s*=\s*true/.test(rest), notes })
+    }
+  }
+  return byKind
+}
+
+// protobuf-es ScalarType enum → the JS value you pass to track().
+const SCALAR_JS = {
+  1: 'number',
+  2: 'number',
+  3: 'number',
+  4: 'number',
+  5: 'number',
+  6: 'number',
+  7: 'number',
+  8: 'boolean',
+  9: 'string',
+  12: 'bytes',
+  13: 'number',
+  15: 'number',
+  16: 'number',
+  17: 'number',
+  18: 'number',
+}
+const fieldType = f => {
+  if (f.fieldKind !== 'message') return SCALAR_JS[f.scalar] ?? 'value'
+  const t = f.message?.typeName
+  if (t === 'google.protobuf.Duration') return 'Duration'
+  if (t === 'google.protobuf.Timestamp') return 'Timestamp'
+  return f.message?.name ?? 'object'
+}
+
+const DOMAIN_TITLE = { api: 'API' }
+const domainTitle = mod => {
+  const base = mod.replace(/_events$/, '')
+  return DOMAIN_TITLE[base] ?? base.charAt(0).toUpperCase() + base.slice(1)
+}
+
+const constraints = parseConstraints()
+for (const e of entries) {
+  // Every web event must resolve to a parsed proto message; a miss means the parser or
+  // the proto layout drifted, and we'd silently emit an event with no constraints.
+  if (!constraints.has(e.kind)) throw new Error(`proto parse missed web event kind: ${e.kind} (${e.module}.proto)`)
+}
+
+const renderProp = (f, c) => {
+  const req = c?.required ? '\\*' : ''
+  const notes = c?.notes?.length ? ` ${c.notes.join(', ')}` : ''
+  return `\`${f.localName}\`${req} ${fieldType(f)}${notes}`
+}
+
+const byDomain = new Map()
+for (const e of entries) {
+  const t = domainTitle(e.module)
+  if (!byDomain.has(t)) byDomain.set(t, [])
+  byDomain.get(t).push(e)
+}
+
+const docSections = [...byDomain.entries()]
+  .sort(([a], [b]) => a.localeCompare(b))
+  .map(([title, evs]) => {
+    const rows = evs
+      .sort((a, b) => a.kind.localeCompare(b.kind))
+      .map(e => {
+        const cmap = constraints.get(e.kind)
+        const props = e.desc.fields.map(f => renderProp(f, cmap?.get(f.name)))
+        return `| \`${e.kind}\` | ${props.length ? props.join(' · ') : '—'} |`
+      })
+    return `## ${title}\n\n| Event | Properties |\n| --- | --- |\n${rows.join('\n')}`
+  })
+  .join('\n\n')
+
+const docContent = `<!-- AUTOGENERATED by scripts/gen-well-known-events.mjs — do not edit. Run \`make protos\` to regenerate. -->
+
+# Well-known events
+
+The Pug Web SDK ships **${entries.length} well-known event names** with typed, autocompleted
+properties: pass one of these strings to \`track()\` and your editor completes and type-checks the
+payload. Any other string is accepted as a **custom** event.
+
+Typing is **compile-time only**. At runtime every event — well-known or custom — takes the same
+path; the SDK does not validate properties client-side. The constraints below are enforced
+**server-side** and shown here for reference. Extra properties beyond the ones listed are always
+allowed and sent as custom properties.
+
+**Legend:** \`name\`\\* = required (server-side) · the type is the JS value you pass to \`track()\` ·
+\`>0\` / \`≥0\` / \`0–10\` = numeric range · \`ISO-4217\` = 3-letter uppercase currency code · \`≥0s\` =
+non-negative duration.
+
+${docSections}
+`
+
+const docPath = join(repoRoot, 'WELL_KNOWN_EVENTS.md')
+writeFileSync(docPath, docContent)
+console.log(`Wrote ${entries.length} well-known events to ${docPath}`)

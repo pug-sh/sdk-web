@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pug SDK — CDN Loader Snippet Example</title>
+    <style>
+      body {
+        font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+        max-width: 860px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        color: #1a1a1a;
+        line-height: 1.5;
+      }
+      h1 { font-size: 1.5rem; }
+      h2 { font-size: 1.15rem; margin-top: 2.5rem; }
+      .desc { color: #555; }
+      .actions { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 1rem 0; }
+      button {
+        padding: 0.6rem 1rem;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+        font-size: 0.95rem;
+      }
+      #ready-banner { padding: 0.5rem 0.75rem; border-left: 3px solid #f0ad4e; background: #fdf6ec; font-size: 0.9rem; }
+      #ready-banner.loaded { border-color: #2e7d32; background: #f1f8f2; }
+      table { border-collapse: collapse; font-size: 0.9rem; }
+      td { padding: 0.35rem 0.75rem; border-bottom: 1px solid #eee; }
+      td:first-child { color: #555; }
+      #action-log { margin-top: 1rem; }
+      .log-entry { padding: 0.35rem 0.6rem; border-left: 3px solid #ccc; margin-bottom: 0.35rem; font-size: 0.85rem; }
+      code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <h1>Pug SDK — CDN loader snippet</h1>
+    <p class="desc">
+      Loads the SDK as the IIFE bundle via the production loader snippet (with <code>src</code> pointed at the
+      local build), queues <code>init()</code> and a <code>track()</code> call before the script loads, and drives
+      everything through <code>window.pug</code>. Runs in <code>dryRun</code> mode with consent denied at start, so
+      nothing is sent. Build first: <code>bun run build &amp;&amp; bun run serve</code>, then open
+      <code>http://localhost:3000/examples/cdn/</code>. Watch the devtools console (enable Verbose) for SDK logs.
+    </p>
+
+    <!-- The production snippet, verbatim except that s.src points at the local build instead of
+         https://cdn.jsdelivr.net/npm/@pug-sh/browser@<version>/dist/cdn/pug.min.js -->
+    <script>
+      !(function (w, d) {
+        if (w.pug) { if (!w.pug._q) console.warn('[Pug SDK] window.pug already defined by another script; not loaded.'); return; }
+        var q = [];
+        var pug = (w.pug = { _q: q, _v: 1 });
+        var methods = ('init track identify reset destroy setAutoCapture optInTracking optOutTracking ' +
+          'isTrackingEnabled getTrackingConsent rotate ready').split(' ');
+        methods.forEach(function (m) {
+          pug[m] = function () { if (q.length < 1000) q.push([m, [].slice.call(arguments)]); };
+        });
+        var s = d.createElement('script');
+        s.async = true;
+        s.src = '/dist/cdn/pug.min.js';
+        s.onerror = function () { console.warn('[Pug SDK] Failed to load ' + s.src); };
+        d.head.appendChild(s);
+      })(window, document);
+
+      // Everything below runs BEFORE the bundle has loaded — the stub queues it all.
+      pug.init('cdn-example', {
+        apiKey: 'demo-api-key',
+        dryRun: true,
+        trackingConsent: { default: 'denied', persist: false },
+      });
+      pug.track('queued_before_load'); // replayed after load; dropped by consent (denied) — see console
+    </script>
+
+    <!-- Uncomment to see the duplicate-load warning in the console:
+    <script src="/dist/cdn/pug.min.js"></script>
+    -->
+
+    <h2>State</h2>
+    <p id="ready-banner">Waiting for the bundle to load…</p>
+    <table>
+      <tbody>
+        <tr><td><code>pug.version</code></td><td id="state-version">—</td></tr>
+        <tr><td><code>isTrackingEnabled()</code></td><td id="state-enabled">—</td></tr>
+        <tr><td><code>getTrackingConsent()</code></td><td id="state-consent">—</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Actions</h2>
+    <div class="actions">
+      <button type="button" id="btn-opt-in">optInTracking()</button>
+      <button type="button" id="btn-opt-out">optOutTracking()</button>
+      <button type="button" id="btn-track">track('button_clicked')</button>
+      <button type="button" id="btn-identify">identify('user@example.com')</button>
+    </div>
+    <div id="action-log"></div>
+
+    <script>
+      // Plain page code. pug.ready() covers both load orders on its own — registered before the
+      // bundle arrives it is queued and replays in position, registered after it runs
+      // synchronously — so no readiness bookkeeping is needed here.
+      (function () {
+        var logEl = document.getElementById('action-log');
+
+        var logAction = function (text) {
+          var entry = document.createElement('div');
+          entry.className = 'log-entry';
+          entry.textContent = text;
+          logEl.prepend(entry);
+        };
+
+        var refreshState = function () {
+          document.getElementById('state-version').textContent = String(window.pug.version);
+          document.getElementById('state-enabled').textContent = String(window.pug.isTrackingEnabled());
+          document.getElementById('state-consent').textContent = String(window.pug.getTrackingConsent());
+        };
+
+        window.pug.ready(function () {
+          var banner = document.getElementById('ready-banner');
+          banner.textContent = 'pug.ready() fired — SDK v' + window.pug.version + ' loaded and the queue was replayed.';
+          banner.className = 'loaded';
+          refreshState();
+        });
+
+        var wire = function (id, label, fn) {
+          document.getElementById(id).addEventListener('click', function () {
+            if (!window.pug.__loaded) {
+              logAction('Bundle not loaded — run `bun run build`, reload, and check the network tab.');
+              return;
+            }
+            fn();
+            logAction(label);
+            refreshState();
+          });
+        };
+
+        wire('btn-opt-in', 'optInTracking() — listeners attach, track()/identify() send again', function () {
+          window.pug.optInTracking();
+        });
+        wire('btn-opt-out', 'optOutTracking() — listeners torn down, persisted identity cleared', function () {
+          window.pug.optOutTracking();
+        });
+        wire('btn-track', "track('button_clicked') — dropped while opted out, dryRun-logged while opted in", function () {
+          window.pug.track('button_clicked', { source: 'cdn-example' });
+        });
+        wire('btn-identify', "identify('user@example.com') — dropped while opted out, dryRun-logged while opted in", function () {
+          window.pug.identify('user@example.com', { plan: 'demo' });
+        });
+      })();
+    </script>
+  </body>
+</html>

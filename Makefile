@@ -38,22 +38,23 @@ protos:
 	node scripts/strip-validate-deps.mjs
 	$(MAKE) typed-events
 
-# Rebuild the well-known-event registry (src/well-known-events.generated.ts) from the
-# generated schemas. Web analog of sdk-flutter's typed-track. The script introspects a
-# throwaway compile of src/gen (node can't import the .ts source directly), so nothing
+# Rebuild the well-known-event artifacts from the generated schemas: the type-only
+# registry (src/well-known-events.generated.ts) and the human reference
+# (WELL_KNOWN_EVENTS.md). Web analog of sdk-flutter's typed-track. The script introspects
+# a throwaway compile of src/gen (node can't import the .ts source directly), so nothing
 # here touches the Buf Schema Registry.
 typed-events:
 	node_modules/.bin/tsc -p tsconfig.gen.json
 	node scripts/gen-well-known-events.mjs
 	rm -rf .codegen-tmp
 
-# CI gate: committed codegen (src/gen + typed events) must match a fresh generate.
-# Depends on `protos` (not just `typed-events`) so a standalone `make check-codegen`
-# also regenerates src/gen; otherwise src/gen drift passes unchecked here while the
-# real GitHub CI (which diffs both paths) fails. buf.gen.yaml's clean:true means a
-# stale src/gen would otherwise be silently overwritten with no drift reported.
+# CI gate: committed codegen (src/gen + typed events + the reference doc) must match a
+# fresh generate. Depends on `protos` (not just `typed-events`) so a standalone
+# `make check-codegen` also regenerates src/gen; otherwise src/gen drift passes unchecked
+# here while the real GitHub CI (which diffs all paths) fails. buf.gen.yaml's clean:true
+# means a stale src/gen would otherwise be silently overwritten with no drift reported.
 check-codegen: protos
-	@git diff --exit-code -- src/gen src/well-known-events.generated.ts \
+	@git diff --exit-code -- src/gen src/well-known-events.generated.ts WELL_KNOWN_EVENTS.md \
 	  || { echo "codegen drift — run 'make protos' and commit"; exit 1; }
 
 build:

@@ -77,6 +77,10 @@
       <tbody id="url-table"></tbody>
     </table>
 
+    <!-- Load the SDK as its single self-contained bundle: one request that installs window.pug,
+         not the module-per-file dev build. Production sites use the async loader snippet instead —
+         see examples/cdn/ and the README. -->
+    <script src="/dist/cdn/pug.min.js"></script>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

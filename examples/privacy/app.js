@@ -4,12 +4,13 @@
 //   bun run build && bun run serve
 // then open http://localhost:3000/examples/privacy/
 //
+// index.html loads the SDK as its single-file bundle (window.pug, one request), so this file
+// drives it through that global rather than importing the module-per-file dev build.
+//
 // The SDK is initialized in dryRun mode so this page never sends anything. The
 // URL panel reuses the exact maskUrl passed to init({ sanitizeUrl }); the capture
 // panel reimplements the SDK's internal suppression check (data-pug-no-capture
 // takes no function) so you can see its effect on sample inputs.
-
-import { init } from '../../dist/index.js'
 
 // ── 1. URL sanitizer: route masking + PII query-param stripping ──
 //
@@ -42,7 +43,7 @@ const maskUrl = url => {
 //
 // `data-pug-no-capture` (in index.html) needs no config — the click and
 // dead-click trackers consult it automatically. `sanitizeUrl` is opt-in here.
-init('privacy-example', {
+window.pug.init('privacy-example', {
   apiKey: 'demo-api-key', // required by init(); unused here since dryRun never delivers
   dryRun: true, // demo only — never deliver
   sanitizeUrl: maskUrl,

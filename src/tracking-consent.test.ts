@@ -46,6 +46,34 @@ describe('createTrackingConsent', () => {
     expect(createTrackingConsent('proj', 'denied').getConsent()).toBe('denied')
   })
 
+  it('fails closed to denied on an out-of-domain default seed and warns', async () => {
+    const createTrackingConsent = await loadFactory()
+    // The seed is runtime-untrusted despite its type: the CDN one-tag install feeds it from
+    // data-options JSON, e.g. data-options='{"trackingConsent":{"default":"Denied"}}'.
+    const consent = createTrackingConsent('proj', { default: 'Denied' as unknown as 'denied' })
+    expect(consent.getConsent()).toBe('denied')
+    expect(consent.isGranted()).toBe(false)
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining("failing closed to 'denied'"))
+  })
+
+  it('fails closed on an out-of-domain string-form config', async () => {
+    const createTrackingConsent = await loadFactory()
+    expect(createTrackingConsent('proj', 'maybe' as unknown as 'denied').getConsent()).toBe('denied')
+  })
+
+  it('fails closed to denied on a non-object, non-string config shape', async () => {
+    const createTrackingConsent = await loadFactory()
+    // A mangled one-tag data-options interpolation can yield a primitive or array where a consent
+    // object or string was intended, e.g. data-options='{"trackingConsent":true}' or '["denied"]'.
+    // These have no `default`, so shape validation (not value validation) must catch them.
+    for (const bad of [42, true, ['denied']] as unknown[]) {
+      vi.clearAllMocks()
+      const consent = createTrackingConsent('proj', bad as never)
+      expect(consent.getConsent(), JSON.stringify(bad)).toBe('denied')
+      expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining("failing closed to 'denied'"))
+    }
+  })
+
   it('does not touch storage when persist is false', async () => {
     const createTrackingConsent = await loadFactory()
     const consent = createTrackingConsent('proj', { default: 'granted' })

@@ -40,9 +40,9 @@ jobs:
       - name: Verify vendored codegen is up to date
         run: |
           make protos
-          if ! git diff --quiet -- src/gen src/well-known-events.generated.ts; then
-            echo "::error::Vendored codegen is stale. Run 'make protos' and commit src/gen + src/well-known-events.generated.ts."
-            git diff --stat -- src/gen src/well-known-events.generated.ts
+          if ! git diff --quiet -- src/gen src/well-known-events.generated.ts WELL_KNOWN_EVENTS.md; then
+            echo "::error::Vendored codegen is stale. Run 'make protos' and commit src/gen + src/well-known-events.generated.ts + WELL_KNOWN_EVENTS.md."
+            git diff --stat -- src/gen src/well-known-events.generated.ts WELL_KNOWN_EVENTS.md
             exit 1
           fi
 
