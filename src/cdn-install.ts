@@ -90,7 +90,9 @@ export const installPug = (w: { pug?: PugStub }, api: CdnApi): InstallResult | n
       return
     }
     const method = call[0]
-    const fn = api[method]
+    // Own-property lookup only: api[method] would otherwise resolve inherited Object.prototype
+    // members (constructor, toString, hasOwnProperty), invoking them instead of failing closed.
+    const fn = Object.prototype.hasOwnProperty.call(api, method) ? api[method] : undefined
     if (typeof fn !== 'function') {
       log.warn(`Ignoring queued call to unknown method "${String(method)}".`)
       return

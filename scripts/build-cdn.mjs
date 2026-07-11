@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 import { build } from 'esbuild'
+import { backfillLegalNotices } from './legal.mjs'
 
 const GZIP_BUDGET_KB = 45
 
@@ -31,15 +32,13 @@ await build({
 
 // esbuild's 'linked' mode extracts inline license banners (e.g. uuidv7's) into the sidecar, but a
 // dependency that ships no inline banner (@bufbuild/protobuf) is missed. Backfill every runtime
-// dependency absent from the extracted notices so each bundled package is attributed.
+// dependency absent from the extracted notices so each bundled package is attributed; see
+// scripts/legal.mjs for the deliberate substring-dedup rationale (scripts/legal.test.mjs pins it).
 const legalPath = 'dist/cdn/pug.min.js.LEGAL.txt'
-let legal = existsSync(legalPath) ? readFileSync(legalPath, 'utf8') : 'Bundled license information:\n'
-for (const dep of Object.keys(dependencies).sort()) {
-  if (legal.includes(dep)) continue
-  const meta = JSON.parse(readFileSync(`node_modules/${dep}/package.json`, 'utf8'))
-  const url = meta.homepage ?? (typeof meta.repository === 'string' ? meta.repository : meta.repository?.url) ?? ''
-  legal += `\n${dep} v${meta.version}:\n  License: ${meta.license}\n${url ? `  ${url}\n` : ''}`
-}
+const extractedLegal = existsSync(legalPath) ? readFileSync(legalPath, 'utf8') : 'Bundled license information:\n'
+const legal = backfillLegalNotices(extractedLegal, dependencies, dep =>
+  JSON.parse(readFileSync(`node_modules/${dep}/package.json`, 'utf8')),
+)
 writeFileSync(legalPath, legal)
 
 const min = readFileSync('dist/cdn/pug.min.js')

@@ -200,6 +200,30 @@ describe('replayQueue', () => {
     expect(api.calls).toEqual(['track("x")'])
   })
 
+  it('rejects inherited prototype members instead of invoking them', () => {
+    const api = makeApi()
+    const installed = installPug({}, api)
+    if (!installed) throw new Error('install failed')
+
+    // Object.prototype members resolve to functions via the prototype chain; dispatch must fail
+    // closed on them rather than call constructor()/toString()/hasOwnProperty().
+    replayQueue(
+      [
+        ['constructor', []],
+        ['toString', []],
+        ['hasOwnProperty', ['x']],
+        ['track', ['x']],
+      ],
+      installed.dispatch,
+      true,
+    )
+
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('unknown method "constructor"'))
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('unknown method "toString"'))
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('unknown method "hasOwnProperty"'))
+    expect(api.calls).toEqual(['track("x")'])
+  })
+
   it('warns on malformed queue entries and keeps replaying', () => {
     const api = makeApi()
     const installed = installPug({}, api)
@@ -509,6 +533,24 @@ describe('loader snippet fixture', () => {
         .replace(/s\.src = '[^']+';/, "s.src = '<src>';")
 
     expect(normalize(example)).toBe(normalize(canonical))
+  })
+
+  it('deliberately leaves a pre-existing foreign window.pug untouched (no clobber, no load)', () => {
+    // A real foreign global already on the page (e.g. the pug template engine). The snippet's
+    // `if (w.pug) return` bails by design: it must never overwrite an unrelated global, so it does
+    // not stub, does not inject the bundle script, and — accepted tradeoff — the snippet's trailing
+    // `pug.init(...)` (outside SNIPPET_RE) would then hit the foreign object. installPug's foreign
+    // global guard (see "refuses to overwrite a foreign window.pug" above) is the reachable warning
+    // + safety net in the one-tag / direct-bundle-load path where no snippet runs first.
+    const foreign = { render: () => 'template engine' }
+    const fakeDoc = makeFakeDocument()
+    const w: { pug?: PugStub } = { pug: foreign as unknown as PugStub }
+    const runSnippet = new Function('window', 'document', extractSnippet('../README.md'))
+
+    runSnippet(w, fakeDoc)
+
+    expect(w.pug).toBe(foreign) // untouched — the snippet wrote no stub over it
+    expect(fakeDoc.appended).toHaveLength(0) // and never injected the bundle script
   })
 
   it('caps the queue at 1000 entries when the bundle never arrives', () => {

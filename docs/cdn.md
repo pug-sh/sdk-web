@@ -2,7 +2,7 @@
 
 The npm package ships a self-contained IIFE bundle at `dist/cdn/pug.min.js` that installs the SDK on `window.pug`. jsDelivr serves it straight from npm — no extra infrastructure:
 
-```
+```text
 https://cdn.jsdelivr.net/npm/@pug-sh/browser@<version>/dist/cdn/pug.min.js
 ```
 
