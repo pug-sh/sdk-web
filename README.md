@@ -20,9 +20,9 @@ No bundler? Load the SDK from jsDelivr with the loader snippet — paste it into
     var pug = (w.pug = { _q: q, _v: 1 });
     var methods = ('init track identify reset destroy setAutoCapture optInTracking optOutTracking ' +
       'isTrackingEnabled getTrackingConsent rotate ready').split(' ');
-    for (var i = 0; i < methods.length; i++) (function (m) {
+    methods.forEach(function (m) {
       pug[m] = function () { if (q.length < 1000) q.push([m, [].slice.call(arguments)]); };
-    })(methods[i]);
+    });
     var s = d.createElement('script');
     s.async = true;
     s.src = 'https://cdn.jsdelivr.net/npm/@pug-sh/browser@0.0.3/dist/cdn/pug.min.js';
