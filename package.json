@@ -59,7 +59,7 @@
   "author": "pug.sh",
   "license": "MIT",
   "devDependencies": {
-    "@biomejs/biome": "2.5.2",
+    "@biomejs/biome": "2.5.3",
     "@bufbuild/protoc-gen-es": "^2.12.1",
     "esbuild": "0.27.7",
     "jsdom": "^29.0.1",
