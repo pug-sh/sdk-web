@@ -260,6 +260,13 @@ describe('Event proto integrity', () => {
     expect(ev!.autoProperties.$sdkVersion).toBeTruthy()
   })
 
+  // The backend promotes $platform into a dedicated events column and never derives it from the UA
+  // header, so an omitted or non-"web" value silently empties every platform breakdown/filter.
+  it('sets $platform to "web"', () => {
+    const ev = toEvent(PROJECT_ID, 'my_event', SESSION_ID, DISTINCT_ID)
+    expect(ev!.autoProperties.$platform.value.value).toBe('web')
+  })
+
   it('sets sessionId and distinctId as top-level Event fields, not as customProperties', () => {
     const ev = toEvent(PROJECT_ID, 'my_event', SESSION_ID, DISTINCT_ID, { x: 1 })
     expect(ev!.sessionId).toBe(SESSION_ID)

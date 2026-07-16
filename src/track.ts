@@ -220,6 +220,9 @@ export const toEvent = (
       eventId: uuidv7(),
       autoProperties: {
         $projectId: makeStringValue(projectId),
+        // Not derivable server-side from the UA header (unlike $browser/$os/$device), so every SDK
+        // sends it. Value set is web | ios | android, matching devices.proto's `platform` constraint.
+        $platform: makeStringValue('web'),
         $url: makeStringValue(sanitizeUrlValue(window.location.href)),
         $referrer: makeStringValue(sanitizeUrlValue(document.referrer)),
         $locale: makeStringValue(navigator.language),
