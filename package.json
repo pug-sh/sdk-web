@@ -1,6 +1,6 @@
 {
   "name": "@pug-sh/browser",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Pug browser SDK for event tracking and product analytics",
   "type": "module",
   "main": "./dist/index.js",

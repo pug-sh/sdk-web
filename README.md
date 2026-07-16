@@ -28,7 +28,7 @@ No bundler? Load the SDK from the Pug CDN (`cdn.pugs.dev`) with the loader snipp
     });
     var s = d.createElement('script');
     s.async = true;
-    s.src = 'https://cdn.pugs.dev/v0.0.3/pug.min.js';
+    s.src = 'https://cdn.pugs.dev/v0.0.4/pug.min.js';
     s.onerror = function () { console.warn('[Pug SDK] Failed to load ' + s.src); };
     d.head.appendChild(s);
   })(window, document);
@@ -42,7 +42,7 @@ Always call `pug.init()` first in the snippet — the SDK drops calls made befor
 ```html
 <script
   async
-  src="https://cdn.pugs.dev/v0.0.3/pug.min.js"
+  src="https://cdn.pugs.dev/v0.0.4/pug.min.js"
   data-project-id="your-project-id"
   data-api-key="your-api-key"
   data-options='{"trackingConsent":{"default":"denied","persist":true}}'
