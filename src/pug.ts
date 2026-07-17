@@ -8,7 +8,7 @@ import {
 import { type BatchConfig, createBatchedTransport } from './batch.js'
 import { type CrossSubdomainConfig, createCookieLayer } from './cookie.js'
 import { IdentifyRequestSchema, ProfilesSDKService } from './gen/sdk/profiles/v1/profiles_pb.js'
-import { log } from './logger.js'
+import { log, setDebugLogging } from './logger.js'
 import { initUserAgentData } from './parsers.js'
 import { createPersistentStore, type PersistentStore } from './persistence.js'
 import {
@@ -48,6 +48,15 @@ export interface InitOptions {
   readonly apiKey: string
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
+  /**
+   * Logs the SDK's internal activity (events tracked, dropped calls and why, listener changes) to
+   * `console.debug`. Off by default. Warnings and errors are always logged regardless of this flag.
+   *
+   * Turn it on when events are not arriving: it reports each `track()` call and the reason for every
+   * drop (denied consent, `dryRun`, uninitialized). Note that `console.debug` output sits in
+   * DevTools' "Verbose" level, which is hidden until you enable it in the console's level filter.
+   */
+  readonly debug?: boolean
   readonly session?: SessionConfig
   readonly autoCapture?: AutoCaptureConfig
   readonly trackingConsent?: TrackingConsent | TrackingConsentConfig
@@ -117,6 +126,9 @@ export const init = (projectId: string, options: InitOptions) => {
     log.warn('Already initialized.')
     return
   }
+
+  // Before any other setup, so init's own debug output is captured too.
+  setDebugLogging(options.debug ?? false)
 
   const config: PugConfig = { endpoint: options.endpoint || DEFAULT_ENDPOINT, projectId }
 
@@ -214,7 +226,13 @@ export const optOutTracking = (): void => {
   log.debug('Tracking opted out.')
 }
 
-/** Reflects tracking consent only — independent of `dryRun`, which suppresses delivery without changing consent. */
+/**
+ * Whether events are being tracked right now. Reflects tracking consent only — independent of
+ * `dryRun`, which suppresses delivery without changing consent. `false` before `init()` is accurate
+ * rather than a placeholder: nothing is being tracked yet. To read the user's *recorded choice*
+ * (which may be a persisted `'granted'` that this returns `false` for simply because `init()` has
+ * not run), use `getTrackingConsent()`.
+ */
 export const isTrackingEnabled = (): boolean => {
   if (!state) {
     log.warn('isTrackingEnabled() called before init().')
@@ -223,10 +241,19 @@ export const isTrackingEnabled = (): boolean => {
   return state.trackingConsent.isGranted()
 }
 
-export const getTrackingConsent = (): TrackingConsent => {
+/**
+ * The user's recorded consent choice, or `undefined` before `init()`.
+ *
+ * A persisted choice is only read from storage during `init()`, so before then there is genuinely no
+ * answer to give. It reports `undefined` rather than `'denied'` because those mean different things:
+ * a consent banner gated on a pre-init `'denied'` would prompt a user who had already opted in.
+ */
+export const getTrackingConsent = (): TrackingConsent | undefined => {
   if (!state) {
-    log.warn('getTrackingConsent() called before init().')
-    return 'denied'
+    log.warn(
+      'getTrackingConsent() called before init(); returning undefined — a persisted choice is only read during init().',
+    )
+    return undefined
   }
   return state.trackingConsent.getConsent()
 }
@@ -252,6 +279,7 @@ export const destroy = () => {
   destroySession()
   destroyProfile()
   configureUrlSanitizer(undefined)
+  setDebugLogging(false)
 
   state = null
 }

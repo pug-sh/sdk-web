@@ -9,17 +9,23 @@ import type { TrackFn } from './track.js'
 /**
  * Per-listener allowlist for automatic capture.
  *
- * Allowlist semantics: a listener is enabled only when its key is explicitly `true`.
- * An omitted key, `undefined`, and `false` all mean "disabled" — so `{}` disables
- * everything, equivalent to passing `false` as the whole `AutoCaptureConfig`.
+ * Allowlist semantics: a listener is enabled only when its key is explicitly `true`, and every
+ * omitted key is disabled — so `{}` disables everything, equivalent to passing `false` as the whole
+ * `AutoCaptureConfig`.
+ *
+ * The values are typed `true` rather than `boolean` to make that shape unwritable: `{ scroll: false }`
+ * reads like "everything except scroll" but under an allowlist means "nothing at all", so it is a
+ * compile error instead of a silent loss of all automatic capture. List what you want enabled
+ * (`{ pageView: true }`), or pass `false` to turn everything off. For a value known only at runtime,
+ * write `scroll: flag || undefined`.
  */
 export interface AutoCaptureSelection {
-  readonly pageView?: boolean
-  readonly click?: boolean
-  readonly scroll?: boolean
-  readonly form?: boolean
-  readonly rageClick?: boolean
-  readonly deadClick?: boolean
+  readonly pageView?: true
+  readonly click?: true
+  readonly scroll?: true
+  readonly form?: true
+  readonly rageClick?: true
+  readonly deadClick?: true
 }
 
 /** `true` enables all listeners, `false` disables all, an object is a per-listener allowlist. */
@@ -53,19 +59,33 @@ const normalizeAutoCapture = (autoCapture: AutoCaptureConfig | undefined): AutoC
     return trackerKeys
   }
 
-  const unknownKeys = Object.keys(autoCapture).filter(
-    (key): key is string => !trackerKeys.includes(key as AutoCaptureKey),
-  )
+  // The type constrains TS callers to `true`, but this value is runtime-untrusted: the CDN one-tag
+  // install feeds it from data-options JSON.
+  const selection = autoCapture as Record<string, unknown>
+
+  const unknownKeys = Object.keys(selection).filter(key => !trackerKeys.includes(key as AutoCaptureKey))
   if (unknownKeys.length > 0) {
     log.warn(`Unknown autoCapture keys: ${unknownKeys.join(', ')}. Supported keys: ${trackerKeys.join(', ')}`)
   }
 
-  const invalidKeys = trackerKeys.filter(key => autoCapture[key] !== undefined && typeof autoCapture[key] !== 'boolean')
+  const invalidKeys = trackerKeys.filter(key => selection[key] !== undefined && typeof selection[key] !== 'boolean')
   if (invalidKeys.length > 0) {
     log.warn(`autoCapture values must be boolean for keys: ${invalidKeys.join(', ')}. Ignoring invalid values.`)
   }
 
-  return trackerKeys.filter(key => autoCapture[key] === true)
+  const enabled = trackerKeys.filter(key => selection[key] === true)
+  // An object that names trackers but enables none is the allowlist misread as a denylist
+  // (`{ deadClick: false }` meaning "everything except dead clicks"), which silently yields no
+  // capture at all. TS callers cannot express it — AutoCaptureSelection's values are typed `true` —
+  // but JS and CDN callers can, so the loss has to be audible rather than a debug line.
+  if (enabled.length === 0 && trackerKeys.some(key => selection[key] !== undefined)) {
+    log.warn(
+      'autoCapture is an allowlist — only keys set to `true` are enabled — so this selection disables ALL ' +
+        'automatic capture. List the trackers to enable (e.g. { pageView: true }), or pass `false` to disable ' +
+        'capture deliberately.',
+    )
+  }
+  return enabled
 }
 
 /**

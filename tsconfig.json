@@ -14,5 +14,6 @@
     "target": "es2020"
   },
   "include": ["src/**/*"],
-  "exclude": ["src/**/*.test.ts"]
+  // *.test-d.ts holds type-level tests: checked by tsconfig.typecheck.json, never emitted to dist.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test-d.ts"]
 }

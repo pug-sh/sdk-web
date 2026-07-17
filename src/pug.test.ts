@@ -9,8 +9,11 @@ const logSpies = {
   debug: vi.fn(),
 }
 
+const setDebugLoggingSpy = vi.fn()
+
 vi.mock('./logger.js', () => ({
   log: logSpies,
+  setDebugLogging: setDebugLoggingSpy,
 }))
 
 const cleanupSpies = {
@@ -114,6 +117,34 @@ afterEach(async () => {
   destroy()
 })
 
+describe('init debug logging', () => {
+  it('leaves debug logging off by default', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+
+    expect(setDebugLoggingSpy).toHaveBeenCalledWith(false)
+  })
+
+  it('enables debug logging when the debug option is set', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, debug: true })
+
+    expect(setDebugLoggingSpy).toHaveBeenCalledWith(true)
+  })
+
+  it('turns debug logging back off on destroy', async () => {
+    const { destroy, init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, debug: true })
+    setDebugLoggingSpy.mockClear()
+    destroy()
+
+    expect(setDebugLoggingSpy).toHaveBeenCalledWith(false)
+  })
+})
+
 describe('init autoCapture', () => {
   it('initializes all trackers by default', async () => {
     const { init } = await importPug()
@@ -133,7 +164,7 @@ describe('init autoCapture', () => {
 
     init('project-id', {
       apiKey: 'api-key',
-      autoCapture: { pageView: true, click: true, scroll: false },
+      autoCapture: { pageView: true, click: true },
     })
 
     expect(trackerSpies.pageView).toHaveBeenCalledOnce()
@@ -175,6 +206,8 @@ describe('init autoCapture', () => {
 
     expect(trackerSpies.pageView).not.toHaveBeenCalled()
     expect(trackerSpies.click).not.toHaveBeenCalled()
+    // `false` is the deliberate spelling of "capture nothing", so it must not draw the allowlist warning.
+    expect(logSpies.warn).not.toHaveBeenCalledWith(expect.stringContaining('autoCapture is an allowlist'))
   })
 
   it('defaults to all trackers for invalid autoCapture shapes', async () => {
@@ -201,6 +234,28 @@ describe('init autoCapture', () => {
     expect(logSpies.warn).toHaveBeenCalledWith(
       expect.stringContaining('autoCapture values must be boolean for keys: click'),
     )
+  })
+
+  // The allowlist misread as a denylist: "everything except dead clicks" actually captures nothing.
+  // AutoCaptureSelection types its values `true` so TS callers cannot write this, but JS callers and
+  // the CDN's data-options JSON still can — and losing all capture must not be a silent debug line.
+  it('warns that a selection enabling nothing disables all capture', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: { deadClick: false } as never })
+
+    expect(trackerSpies.pageView).not.toHaveBeenCalled()
+    expect(trackerSpies.click).not.toHaveBeenCalled()
+    expect(trackerSpies.deadClick).not.toHaveBeenCalled()
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('autoCapture is an allowlist'))
+  })
+
+  it('does not warn about the allowlist when a selection enables at least one tracker', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: { scroll: true } })
+
+    expect(logSpies.warn).not.toHaveBeenCalledWith(expect.stringContaining('autoCapture is an allowlist'))
   })
 
   it('logs an aggregate error when tracker setup fails', async () => {
@@ -390,9 +445,23 @@ describe('tracking consent', () => {
     const { getTrackingConsent, isTrackingEnabled } = await importPug()
 
     expect(isTrackingEnabled()).toBe(false)
-    expect(getTrackingConsent()).toBe('denied')
+    expect(getTrackingConsent()).toBeUndefined()
     expect(logSpies.warn).toHaveBeenCalledWith('isTrackingEnabled() called before init().')
-    expect(logSpies.warn).toHaveBeenCalledWith('getTrackingConsent() called before init().')
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('getTrackingConsent() called before init()'))
+  })
+
+  // Regression: getTrackingConsent() used to answer 'denied' before init(), which is indistinguishable
+  // from a real opt-out. A consent banner gated on it would re-prompt a user who had already opted in,
+  // because the persisted choice is not read from storage until init() runs.
+  it('reports undefined — not denied — before init even when a granted choice is persisted', async () => {
+    localStorage.setItem(makeStorageKey('project-id', 'consent'), 'granted')
+    const { getTrackingConsent, init } = await importPug()
+
+    expect(getTrackingConsent()).toBeUndefined()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, trackingConsent: { default: 'denied', persist: true } })
+
+    expect(getTrackingConsent()).toBe('granted')
   })
 
   it('reports granted consent after opt in', async () => {

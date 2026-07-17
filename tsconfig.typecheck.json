@@ -1,0 +1,10 @@
+// Typechecks the source plus the type-level tests (`*.test-d.ts`), which the build's tsconfig
+// excludes so they are never emitted into dist/. Run by `bun run typecheck` and by CI.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts"]
+}

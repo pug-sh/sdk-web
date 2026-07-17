@@ -49,6 +49,24 @@ Always call `pug.init()` first in the snippet — the SDK drops calls made befor
 ></script>
 ```
 
+#### `ready(cb)` — read state after the bundle loads
+
+Calls made through the snippet's stub before the bundle arrives are queued, and they return `undefined` instead of their real value. That matters for anything that *reads* state or awaits a promise: a getter called too early answers `undefined`, not the truth. `pug.ready(cb)` runs `cb` once the SDK is loaded — at its queue position during replay, or synchronously if the bundle is already there:
+
+```html
+<script>
+  // Wrong: queued before load, so isTrackingEnabled() returns undefined and the banner always shows.
+  if (!pug.isTrackingEnabled()) showConsentBanner()
+
+  // Right: runs once the SDK has loaded and init has replayed, when the getter can actually answer.
+  pug.ready(function () {
+    if (!pug.isTrackingEnabled()) showConsentBanner()
+  })
+</script>
+```
+
+`ready()` exists only on the CDN build — under `npm install` the module is fully loaded before your code runs, so there is nothing to wait for.
+
 </details>
 
 ## Usage
@@ -77,7 +95,7 @@ destroy()
 
 All standard events (page views, clicks, scrolls, forms, rage clicks, dead clicks) are captured automatically after `init()`.
 
-To selectively enable only some automatically captured events, use `autoCapture`. Object mode is an allowlist: omitted keys are disabled.
+To capture only some of them, pass an `autoCapture` object. It is an **allowlist**: name the trackers you want and every other one stays off. Pass `false` to disable automatic capture entirely.
 
 ```ts
 init('your-project-id', {
@@ -85,10 +103,12 @@ init('your-project-id', {
   autoCapture: {
     pageView: true,
     click: true,
-    scroll: false,
   },
 })
+// Captures page views and clicks. scroll, form, rageClick and deadClick stay off.
 ```
+
+Because it is an allowlist rather than a denylist, there is no way to spell "everything except X": `{ scroll: false }` would enable nothing at all, silently turning off all capture. So the values are typed `true` and TypeScript rejects that shape — list what you want enabled, or pass `false` to turn everything off deliberately. (Plain JS and the one-tag install aren't type-checked, so the SDK also warns at runtime if a selection enables nothing.)
 
 For consent-first flows, start with tracking consent denied. While denied, automatic listeners are not attached, and manual `track()` and `identify()` are dropped (events are not queued for later replay). Set `persist: true` to remember the user's choice across reloads — it is persisted like identity (through the cross-subdomain cookie when active, so an opt-out on one subdomain applies on siblings, plus `localStorage`); otherwise consent is in-memory and you pass the initial value yourself on each `init()`.
 
@@ -118,7 +138,9 @@ optOutTracking()
 | `apiKey` | `string` | — | **Required.** API key. |
 | `endpoint` | `string` | `https://api.pugs.dev` | Backend base URL. |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
-| `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object enables only keys set to `true`. |
+| `debug` | `boolean` | `false` | Logs internal activity (each event tracked, every dropped call and why) to `console.debug`. Turn it on when events aren't arriving. Warnings and errors are always logged regardless. See [Debugging](#debugging). |
+| `dryRun` | `boolean` | `false` | Builds events as normal but never sends them. Consent is unaffected — `isTrackingEnabled()` still reports `true`. |
+| `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object is an **allowlist** enabling only the keys set to `true`, with every omitted key off. |
 | `trackingConsent` | `'granted' \| 'denied' \| TrackingConsentConfig` | `'granted'` | Initial consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored. Object form: `default` seeds the first run; `persist: true` remembers the choice across reloads. |
 | `crossSubdomainTracking` | `boolean \| { domain: string }` | `false` | **Off by default** — sharing identity across subdomains weakens browser isolation from same-origin to same-site, so it is an explicit opt-in. `false` keeps persistence origin-scoped in `localStorage`; `true` shares identity (anonymous ID, external ID, session, consent) across subdomains via a first-party cookie on the auto-discovered registrable domain, and `{ domain }` pins that cookie domain explicitly. See [Cross-subdomain tracking](#cross-subdomain-tracking) for fallback behavior and the multi-tenant caveat. |
 | `sanitizeUrl` | `(url: string) => string` | — | Rewrites outgoing URLs (`$url`, `$referrer`, form actions) before they're sent — e.g. to mask IDs or strip PII. See [Privacy controls](#privacy-controls). |
@@ -135,8 +157,8 @@ With `crossSubdomainTracking: true`, identity is written to a first-party cookie
 |---|---|
 | `optInTracking()` | Grants consent, applies the stored `autoCapture` selection, and allows `track()` / `identify()` to send. |
 | `optOutTracking()` | Revokes consent, tears down automatic listeners, and drops future `track()` / `identify()` calls. |
-| `isTrackingEnabled()` | Returns `true` when tracking consent is granted. Reflects consent only — independent of `dryRun`, which suppresses delivery without changing consent. Warns and returns `false` before `init()`. |
-| `getTrackingConsent()` | Returns `'granted'` or `'denied'`. Warns and returns `'denied'` before `init()`. |
+| `isTrackingEnabled()` | Whether events are being tracked right now. Reflects consent only — independent of `dryRun`, which suppresses delivery without changing consent. Warns and returns `false` before `init()`, which is accurate: nothing is being tracked yet. |
+| `getTrackingConsent()` | The user's recorded choice: `'granted'`, `'denied'`, or `undefined` before `init()`. It reports `undefined` rather than `'denied'` because a persisted choice is only read from storage during `init()` — so gate your consent banner on it *after* calling `init()`, or you'll prompt users who already opted in. |
 | `setAutoCapture(selection)` | Stores the desired automatic listener selection. Applies immediately when consent is granted; deferred until `optInTracking()` when denied. |
 
 ### Privacy controls
@@ -235,11 +257,30 @@ Pass `{ immediate: true }` to bypass batching for priority events, or `{ timesta
 track('error_occurred', { errorCode: 'PAYMENT_FAILED' }, { immediate: true })
 ```
 
+### Debugging
+
+If events aren't arriving, pass `debug: true` to `init()`. The SDK then logs every `track()` call and the reason for each dropped one — denied consent, `dryRun`, or a call made before `init()`:
+
+```ts
+init('your-project-id', { apiKey: 'your-api-key', debug: true })
+```
+
+On the one-tag install, pass it through `data-options`: `data-options='{"debug":true}'`.
+
+Two things worth knowing:
+
+- Debug output goes to `console.debug`, which browsers file under the **Verbose** log level. It is hidden until you enable Verbose in the DevTools console's level filter — an empty console does not mean the SDK is silent.
+- Warnings and errors are never gated behind this flag. A rejected batch, a bad API key, or a misconfigured option is reported whether or not `debug` is on.
+
+Every line the SDK logs is prefixed with `[Pug SDK]`, so filtering the console on that string isolates its output.
+
 ### Well-known events
 
 The SDK ships a large set of **well-known event names** with typed, autocompleted properties — pass one to `track()` and your editor completes and type-checks the payload. Any other string is accepted as a custom event.
 
-Typing is **compile-time only**: at runtime every event takes the same path and the SDK does not validate properties client-side (field constraints are enforced server-side). Extra properties beyond the typed ones are always allowed and sent as custom properties.
+Typing is **compile-time only**: at runtime every event takes the same path and the SDK does not validate properties client-side. Extra properties beyond the typed ones are always allowed and sent as custom properties.
+
+What the types do catch is a wrong type on a known field — `track('purchase', { amount: '49' })` is a compile error, since `amount` is a number. What they don't catch is anything only the server knows: field constraints (`amount > 0`, `currency` matching `^[A-Z]{3}$`), and required fields. Those are enforced server-side and surface as a rejected request, so the editor is your first line of defense and not your only one.
 
 See **[WELL_KNOWN_EVENTS.md](./WELL_KNOWN_EVENTS.md)** for the full list — each event's properties, types, and server-side constraints — grouped into these domains:
 

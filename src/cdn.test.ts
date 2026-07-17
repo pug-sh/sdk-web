@@ -10,6 +10,7 @@ const logSpies = vi.hoisted(() => ({
 
 vi.mock('./logger.js', () => ({
   log: logSpies,
+  setDebugLogging: vi.fn(),
 }))
 
 // The entry runs at import time, so every test gets a fresh module registry and a clean global.
