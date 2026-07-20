@@ -21,8 +21,8 @@ No bundler? Load the SDK from the Pug CDN (`cdn.pugs.dev`) with the loader snipp
     if (w.pug) { if (!w.pug._q) console.warn('[Pug SDK] window.pug already defined by another script; not loaded.'); return; }
     var q = [];
     var pug = (w.pug = { _q: q, _v: 1 });
-    var methods = ('init track identify reset destroy setAutoCapture optInTracking optOutTracking ' +
-      'isTrackingEnabled getTrackingConsent rotate ready').split(' ');
+    var methods = ('init track identify reset destroy setAutoCapture setTrackingConsent optInTracking ' +
+      'optOutTracking isTrackingEnabled getTrackingConsent rotate ready').split(' ');
     methods.forEach(function (m) {
       pug[m] = function () { if (q.length < 1000) q.push([m, [].slice.call(arguments)]); };
     });
@@ -165,11 +165,37 @@ With `crossSubdomainTracking: true`, identity is written to a first-party cookie
 
 | Function | Description |
 |---|---|
-| `optInTracking()` | Grants consent, applies the stored `autoCapture` selection, and allows `track()` / `identify()` to send. |
-| `optOutTracking()` | Revokes consent, tears down automatic listeners, and drops future `track()` / `identify()` calls. |
-| `isTrackingEnabled()` | Whether events are being tracked right now. Reflects consent only — independent of `dryRun`, which suppresses delivery without changing consent. Warns and returns `false` before `init()`, which is accurate: nothing is being tracked yet. |
-| `getTrackingConsent()` | The user's recorded choice: `'granted'`, `'denied'`, or `undefined` before `init()`. It reports `undefined` rather than `'denied'` because a persisted choice is only read from storage during `init()` — so gate your consent banner on it *after* calling `init()`, or you'll prompt users who already opted in. |
-| `setAutoCapture(selection)` | Stores the desired automatic listener selection. Applies immediately when consent is granted; deferred until `optInTracking()` when denied. |
+| `setTrackingConsent(state)` | Sets the consent state: `'granted'`, `'cookieless'`, or `'denied'`. Leaving `'granted'` deletes the stored identity (profile + session, including the cross-subdomain cookie); granting later starts a fresh identity on the next event — pre-consent events are never linked to it. |
+| `optInTracking()` | Shorthand for `setTrackingConsent('granted')`: applies the stored `autoCapture` selection and allows `track()` / `identify()` to send with a persistent identity. |
+| `optOutTracking()` | Shorthand for `setTrackingConsent('denied')`: tears down automatic listeners and drops future `track()` / `identify()` calls entirely. |
+| `isTrackingEnabled()` | Whether events are flowing right now — `true` for both `'granted'` and `'cookieless'` (use `getTrackingConsent()` to distinguish). Independent of `dryRun`, which suppresses delivery without changing consent. Warns and returns `false` before `init()`, which is accurate: nothing is being tracked yet. |
+| `getTrackingConsent()` | The user's recorded choice: `'granted'`, `'cookieless'`, `'denied'`, or `undefined` before `init()`. It reports `undefined` rather than `'denied'` because a persisted choice is only read from storage during `init()` — so gate your consent banner on it *after* calling `init()`, or you'll prompt users who already opted in. |
+| `setAutoCapture(selection)` | Stores the desired automatic listener selection. Applies immediately while tracking is active (granted or cookieless); deferred until consent allows tracking when denied. |
+
+#### Cookieless mode (GDPR/DPDP consent banners)
+
+`'cookieless'` is the middle consent state: events keep flowing, but the SDK stores
+**nothing** on the device — no cookies, no localStorage, not even the event queue — and
+sends no identity. The server derives a daily-rotating anonymous id instead, so
+consent-rejecting visitors still appear in traffic metrics while staying anonymous and
+excluded from user counts by default.
+
+```js
+// Privacy-first default: start cookieless until the banner answers.
+pug.init('<project-id>', {
+  apiKey: '<public-api-key>',
+  trackingConsent: { default: 'cookieless', persist: true },
+})
+
+// Banner handlers:
+onAcceptAll(() => pug.setTrackingConsent('granted'))
+onRejectAnalyticsCookies(() => pug.setTrackingConsent('cookieless'))
+onRejectAll(() => pug.setTrackingConsent('denied'))
+```
+
+Granting consent later starts a **fresh** identity — pre-consent events are never linked
+to it. Revoking from `'granted'` deletes the stored identity (including the
+cross-subdomain cookie). `identify()` is disabled in cookieless mode.
 
 ### Privacy controls
 

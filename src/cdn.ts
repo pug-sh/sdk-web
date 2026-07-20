@@ -15,6 +15,7 @@ import {
   reset,
   rotate,
   setAutoCapture,
+  setTrackingConsent,
   track,
 } from './index.js'
 import { log } from './logger.js'
@@ -30,6 +31,7 @@ const api = {
   reset,
   destroy,
   setAutoCapture,
+  setTrackingConsent,
   optInTracking,
   optOutTracking,
   isTrackingEnabled,

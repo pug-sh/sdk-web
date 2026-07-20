@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearProfile, configureProfile, getAnonymousId, isIdentified, markIdentified, resolveDistinctId } from './profile.js'
+import {
+  clearProfile,
+  configureProfile,
+  getAnonymousId,
+  isIdentified,
+  markIdentified,
+  resolveDistinctId,
+} from './profile.js'
 import { clearSession, configureSession, resolveSessionId } from './session.js'
 import { makeStorageKey } from './utils.js'
 

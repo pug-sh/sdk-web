@@ -15,6 +15,7 @@ export {
   type PugConfig,
   reset,
   setAutoCapture,
+  setTrackingConsent,
   type TrackingConsent,
   type TrackingConsentConfig,
   track,

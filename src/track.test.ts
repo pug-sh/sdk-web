@@ -23,11 +23,16 @@ afterEach(() => {
 // coalesces — see docs/ and the sdk-web bundle-size work).
 describe('well-known event names (runtime heuristic, no schema)', () => {
   it('serializes an integer on a well-known numeric field as intValue (schema no longer forces double)', () => {
-    const ev = toEvent(PROJECT_ID, 'purchase', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, {
-      productId: 'sku-1',
-      amount: 5,
-      currency: 'USD',
-    })
+    const ev = toEvent(
+      PROJECT_ID,
+      'purchase',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      {
+        productId: 'sku-1',
+        amount: 5,
+        currency: 'USD',
+      },
+    )
     expect(ev).not.toBeNull()
     // 5 is a safe integer → intValue. The backend reads Int64 and Float64 slots together.
     expect(ev!.customProperties.amount?.value.case).toBe('intValue')
@@ -37,17 +42,27 @@ describe('well-known event names (runtime heuristic, no schema)', () => {
   })
 
   it('serializes a fractional value on the same field as doubleValue', () => {
-    const ev = toEvent(PROJECT_ID, 'purchase', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, {
-      productId: 'sku-1',
-      amount: 5.5,
-      currency: 'USD',
-    })
+    const ev = toEvent(
+      PROJECT_ID,
+      'purchase',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      {
+        productId: 'sku-1',
+        amount: 5.5,
+        currency: 'USD',
+      },
+    )
     expect(ev!.customProperties.amount?.value.case).toBe('doubleValue')
     expect(ev!.customProperties.amount?.value.value).toBe(5.5)
   })
 
   it('includes an explicitly passed 0 and maps only the keys the caller provided', () => {
-    const ev = toEvent(PROJECT_ID, 'scroll', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, { percent: 0, scrollY: 250 })
+    const ev = toEvent(
+      PROJECT_ID,
+      'scroll',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      { percent: 0, scrollY: 250 },
+    )
     expect(ev).not.toBeNull()
     expect(ev!.customProperties.percent?.value.case).toBe('intValue')
     expect(ev!.customProperties.percent?.value.value).toBe(0n)
@@ -65,11 +80,16 @@ describe('well-known event names (runtime heuristic, no schema)', () => {
   })
 
   it('builds the event even when a value would violate a server-side constraint (server is the authority)', () => {
-    const ev = toEvent(PROJECT_ID, 'purchase', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, {
-      productId: 'sku',
-      amount: -1, // would violate double.gt = 0 server-side
-      currency: 'USD',
-    })
+    const ev = toEvent(
+      PROJECT_ID,
+      'purchase',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      {
+        productId: 'sku',
+        amount: -1, // would violate double.gt = 0 server-side
+        currency: 'USD',
+      },
+    )
     expect(ev).not.toBeNull()
     expect(ev!.customProperties.amount?.value.case).toBe('intValue')
     expect(ev!.customProperties.amount?.value.value).toBe(-1n)
@@ -77,19 +97,29 @@ describe('well-known event names (runtime heuristic, no schema)', () => {
   })
 
   it('serializes every provided prop — a well-known name gets no special-casing', () => {
-    const ev = toEvent(PROJECT_ID, 'click', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, { tag: 'button', extraNote: 'hello' })
+    const ev = toEvent(
+      PROJECT_ID,
+      'click',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      { tag: 'button', extraNote: 'hello' },
+    )
     expect(ev!.customProperties.tag?.value.case).toBe('stringValue')
     expect(ev!.customProperties.extraNote?.value.case).toBe('stringValue')
     expect(ev!.customProperties.extraNote?.value.value).toBe('hello')
   })
 
   it('warns per key on function/symbol values and silently drops undefined', () => {
-    const ev = toEvent(PROJECT_ID, 'click', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, {
-      tag: 'button',
-      cb: () => {},
-      sym: Symbol('x'),
-      gone: undefined,
-    })
+    const ev = toEvent(
+      PROJECT_ID,
+      'click',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      {
+        tag: 'button',
+        cb: () => {},
+        sym: Symbol('x'),
+        gone: undefined,
+      },
+    )
     expect(ev).not.toBeNull()
     expect(ev!.customProperties.tag?.value.case).toBe('stringValue')
     expect(ev!.customProperties.cb).toBeUndefined()
@@ -103,7 +133,12 @@ describe('well-known event names (runtime heuristic, no schema)', () => {
 
 describe('JS heuristic (custom events)', () => {
   it('maps bigint to intValue', () => {
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, { id: 9007199254740993n })
+    const ev = toEvent(
+      PROJECT_ID,
+      'my_event',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      { id: 9007199254740993n },
+    )
     expect(ev!.customProperties.id?.value.case).toBe('intValue')
     expect(ev!.customProperties.id?.value.value).toBe(9007199254740993n)
   })
@@ -115,7 +150,12 @@ describe('JS heuristic (custom events)', () => {
   })
 
   it.each([NaN, Infinity, -Infinity])('drops non-finite number %p, keeps event, warns', n => {
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, { weird: n, ok: 'kept' })
+    const ev = toEvent(
+      PROJECT_ID,
+      'my_event',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      { weird: n, ok: 'kept' },
+    )
     expect(ev).not.toBeNull()
     expect(ev!.customProperties.weird).toBeUndefined()
     expect(ev!.customProperties.ok?.value.case).toBe('stringValue')
@@ -123,14 +163,24 @@ describe('JS heuristic (custom events)', () => {
   })
 
   it('drops Date(NaN) without dropping the event', () => {
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, { ts: new Date(NaN), ok: 'kept' })
+    const ev = toEvent(
+      PROJECT_ID,
+      'my_event',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      { ts: new Date(NaN), ok: 'kept' },
+    )
     expect(ev).not.toBeNull()
     expect(ev!.customProperties.ts).toBeUndefined()
     expect(ev!.customProperties.ok).toBeDefined()
   })
 
   it('JSON-stringifies a plain object as stringValue', () => {
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, { meta: { a: 1, b: 'x' } })
+    const ev = toEvent(
+      PROJECT_ID,
+      'my_event',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      { meta: { a: 1, b: 'x' } },
+    )
     expect(ev!.customProperties.meta?.value.case).toBe('stringValue')
     expect(ev!.customProperties.meta?.value.value).toBe('{"a":1,"b":"x"}')
   })
@@ -145,16 +195,26 @@ describe('JS heuristic (custom events)', () => {
   })
 
   it('drops object whose toJSON returns undefined', () => {
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, {
-      weird: { toJSON: () => undefined },
-      ok: 'kept',
-    })
+    const ev = toEvent(
+      PROJECT_ID,
+      'my_event',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      {
+        weird: { toJSON: () => undefined },
+        ok: 'kept',
+      },
+    )
     expect(ev!.customProperties.weird).toBeUndefined()
     expect(ev!.customProperties.ok).toBeDefined()
   })
 
   it('silently drops null and undefined (no warn)', () => {
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, { a: null, b: undefined, ok: 'kept' })
+    const ev = toEvent(
+      PROJECT_ID,
+      'my_event',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      { a: null, b: undefined, ok: 'kept' },
+    )
     expect(ev!.customProperties.a).toBeUndefined()
     expect(ev!.customProperties.b).toBeUndefined()
     expect(ev!.customProperties.ok).toBeDefined()
@@ -162,11 +222,16 @@ describe('JS heuristic (custom events)', () => {
   })
 
   it('drops function and symbol values with per-key warn, keeps event', () => {
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, {
-      fn: () => {},
-      sym: Symbol(),
-      ok: 'kept',
-    })
+    const ev = toEvent(
+      PROJECT_ID,
+      'my_event',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      {
+        fn: () => {},
+        sym: Symbol(),
+        ok: 'kept',
+      },
+    )
     expect(ev).not.toBeNull()
     expect(ev!.customProperties.fn).toBeUndefined()
     expect(ev!.customProperties.sym).toBeUndefined()
@@ -182,7 +247,12 @@ describe('JS heuristic (custom events)', () => {
   it('drops object containing bigint (JSON.stringify throws), keeps event', () => {
     // JSON.stringify({ id: 1n }) throws TypeError; jsValueToPropertyValue's catch returns null,
     // and the per-key warn fires at the call site.
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, { meta: { id: 1n }, ok: 'kept' })
+    const ev = toEvent(
+      PROJECT_ID,
+      'my_event',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      { meta: { id: 1n }, ok: 'kept' },
+    )
     expect(ev).not.toBeNull()
     expect(ev!.customProperties.meta).toBeUndefined()
     expect(ev!.customProperties.ok).toBeDefined()
@@ -202,7 +272,12 @@ describe('string truncation (UTF-8 bytes, not codepoints)', () => {
   it('truncates emoji string at a UTF-8 sequence boundary (no broken surrogate)', () => {
     // '😀' is 4 UTF-8 bytes, 2 UTF-16 units. 257 × 4 = 1028 bytes, exceeds cap.
     // Truncation should produce 256 complete emoji = 1024 bytes.
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, { e: '😀'.repeat(257) })
+    const ev = toEvent(
+      PROJECT_ID,
+      'my_event',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      { e: '😀'.repeat(257) },
+    )
     const v = ev!.customProperties.e?.value as { value: string }
     expect(new TextEncoder().encode(v.value).byteLength).toBeLessThanOrEqual(1024)
     // Each emoji is exactly 2 UTF-16 units; if truncation split a surrogate pair, length would be odd.
@@ -220,7 +295,12 @@ describe('string truncation (UTF-8 bytes, not codepoints)', () => {
   it('truncates schema-driven string fields too (not just custom)', () => {
     // search.query passes through scalarToPropertyValue → makeStringValue, so the well-known
     // path should also truncate (this was the C2 bug being fixed).
-    const ev = toEvent(PROJECT_ID, 'search', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, { query: 'a'.repeat(2000) })
+    const ev = toEvent(
+      PROJECT_ID,
+      'search',
+      { sessionId: SESSION_ID, distinctId: DISTINCT_ID },
+      { query: 'a'.repeat(2000) },
+    )
     const v = ev!.customProperties.query?.value as { value: string }
     expect(v.value).toHaveLength(1024)
   })
@@ -228,13 +308,17 @@ describe('string truncation (UTF-8 bytes, not codepoints)', () => {
 
 describe('opts.timestamp', () => {
   it('uses opts.timestamp for occurTime when finite', () => {
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, undefined, { timestamp: 1700000000000 })
+    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, undefined, {
+      timestamp: 1700000000000,
+    })
     expect(Number(ev!.occurTime!.seconds)).toBe(1700000000)
   })
 
   it('falls back to current time when opts.timestamp is NaN', () => {
     const before = Date.now()
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, undefined, { timestamp: NaN })
+    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID }, undefined, {
+      timestamp: NaN,
+    })
     const after = Date.now()
     const ms = Number(ev!.occurTime!.seconds) * 1000
     expect(ms).toBeGreaterThanOrEqual(before - 1000)

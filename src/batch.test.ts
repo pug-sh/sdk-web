@@ -120,7 +120,8 @@ describe('createBatchedTransport partial-acceptance reporting (C1)', () => {
 
 describe('cookieless queue routing', () => {
   const cookielessEvt = (id: string): Event => create(EventSchema, { eventId: id, kind: 'k', cookieless: true })
-  const consentedEvt = (id: string): Event => create(EventSchema, { eventId: id, kind: 'k', sessionId: 's', distinctId: 'd' })
+  const consentedEvt = (id: string): Event =>
+    create(EventSchema, { eventId: id, kind: 'k', sessionId: 's', distinctId: 'd' })
 
   it('never writes cookieless events to localStorage, even while retrying', async () => {
     const project = freshProject()

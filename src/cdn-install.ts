@@ -13,6 +13,7 @@ export const STUB_METHODS = [
   'reset',
   'destroy',
   'setAutoCapture',
+  'setTrackingConsent',
   'optInTracking',
   'optOutTracking',
   'isTrackingEnabled',
