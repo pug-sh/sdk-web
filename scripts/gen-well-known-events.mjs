@@ -154,22 +154,25 @@ const parseConstraints = () => {
 }
 
 // protobuf-es ScalarType enum → the JS value you pass to track().
+// The 64-bit integer types (INT64/UINT64/FIXED64/SFIXED64/SINT64) are `bigint`, not `number` —
+// protobuf-es emits them that way, so `sizeBytes: 1024` does not compile and `sizeBytes: 1024n`
+// does. Documenting them as `number` told integrators to write the one thing that cannot compile.
 const SCALAR_JS = {
   1: 'number',
   2: 'number',
-  3: 'number',
-  4: 'number',
+  3: 'bigint',
+  4: 'bigint',
   5: 'number',
-  6: 'number',
+  6: 'bigint',
   7: 'number',
   8: 'boolean',
   9: 'string',
   12: 'bytes',
   13: 'number',
   15: 'number',
-  16: 'number',
+  16: 'bigint',
   17: 'number',
-  18: 'number',
+  18: 'bigint',
 }
 const fieldType = f => {
   if (f.fieldKind !== 'message') return SCALAR_JS[f.scalar] ?? 'value'

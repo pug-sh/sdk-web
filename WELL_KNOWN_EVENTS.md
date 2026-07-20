@@ -67,8 +67,8 @@ non-negative duration.
 | Event | Properties |
 | --- | --- |
 | `chat_archived` | `conversationId`\* string · `conversationType` string |
-| `chat_attachment_downloaded` | `conversationId`\* string · `messageId` string · `attachmentId`\* string · `attachmentType` string · `sizeBytes` number ≥0 · `threadId` string |
-| `chat_attachment_uploaded` | `conversationId`\* string · `messageId` string · `attachmentId`\* string · `attachmentType` string · `sizeBytes` number ≥0 · `threadId` string |
+| `chat_attachment_downloaded` | `conversationId`\* string · `messageId` string · `attachmentId`\* string · `attachmentType` string · `sizeBytes` bigint ≥0 · `threadId` string |
+| `chat_attachment_uploaded` | `conversationId`\* string · `messageId` string · `attachmentId`\* string · `attachmentType` string · `sizeBytes` bigint ≥0 · `threadId` string |
 | `chat_call_joined` | `conversationId`\* string · `callId`\* string · `callType` string |
 | `chat_call_left` | `conversationId`\* string · `callId`\* string · `callType` string · `duration` Duration ≥0s |
 | `chat_call_recording_started` | `conversationId`\* string · `callId`\* string |
@@ -136,10 +136,10 @@ non-negative duration.
 
 | Event | Properties |
 | --- | --- |
-| `export_completed` | `exportId`\* string · `exportType` string · `sizeBytes` number ≥0 |
+| `export_completed` | `exportId`\* string · `exportType` string · `sizeBytes` bigint ≥0 |
 | `export_started` | `exportId`\* string · `exportType` string |
-| `file_downloaded` | `fileId`\* string · `fileName` string · `fileType` string · `sizeBytes` number ≥0 |
-| `file_uploaded` | `fileId`\* string · `fileName` string · `fileType` string · `sizeBytes` number ≥0 |
+| `file_downloaded` | `fileId`\* string · `fileName` string · `fileType` string · `sizeBytes` bigint ≥0 |
+| `file_uploaded` | `fileId`\* string · `fileName` string · `fileType` string · `sizeBytes` bigint ≥0 |
 
 ## Form
 

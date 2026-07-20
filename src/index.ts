@@ -20,12 +20,13 @@ export {
   track,
 } from './pug.js'
 export { rotate, type SessionConfig } from './session.js'
-// Deprecated aliases for backward compatibility — remove in next major version.
 export {
+  type PropValue,
   type TrackEventProps,
   type TrackFn,
   type TrackOptions,
   type WellKnownEventName,
+  // Deprecated alias for backward compatibility — remove in next major version.
   type WellKnownEventName as PugEventName,
   type WellKnownEventPropsMap,
 } from './track.js'

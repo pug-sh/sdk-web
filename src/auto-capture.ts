@@ -18,14 +18,19 @@ import type { TrackFn } from './track.js'
  * compile error instead of a silent loss of all automatic capture. List what you want enabled
  * (`{ pageView: true }`), or pass `false` to turn everything off. For a value known only at runtime,
  * write `scroll: flag || undefined`.
+ *
+ * The `| undefined` is what keeps that last idiom compiling for consumers who enable
+ * `exactOptionalPropertyTypes` (it ships in `@tsconfig/strictest`), where an optional key does not
+ * otherwise admit an explicit `undefined`. It is a no-op without that flag, and it does not weaken
+ * anything: `false` and a `boolean`-typed value are still rejected.
  */
 export interface AutoCaptureSelection {
-  readonly pageView?: true
-  readonly click?: true
-  readonly scroll?: true
-  readonly form?: true
-  readonly rageClick?: true
-  readonly deadClick?: true
+  readonly pageView?: true | undefined
+  readonly click?: true | undefined
+  readonly scroll?: true | undefined
+  readonly form?: true | undefined
+  readonly rageClick?: true | undefined
+  readonly deadClick?: true | undefined
 }
 
 /** `true` enables all listeners, `false` disables all, an object is a per-listener allowlist. */
@@ -98,19 +103,35 @@ const validateAutoCapture = (autoCapture: AutoCaptureConfig | undefined): void =
     log.warn(`autoCapture values must be \`true\` for keys: ${invalidKeys.join(', ')}. Ignoring invalid values.`)
   }
 
-  // An explicit `false` is the allowlist misread as a denylist (`{ deadClick: false }` for
-  // "everything except dead clicks"). Keyed on the `false` itself rather than on a zero enabled
-  // count, because the partial form is the quieter half of the same mistake:
-  // `{ pageView: true, scroll: false }` still enables something, so a count-based check stays
-  // silent while click, form, rageClick and deadClick are lost. TS callers cannot write either
-  // without a cast — AutoCaptureSelection's values are typed `true` — but JS and CDN callers can.
+  // Two spellings of one mistake — the allowlist misread as a denylist — and both must be audible,
+  // because each silently loses capture the integrator believes they kept.
+  //
+  //   1. An explicit `false` (`{ deadClick: false }` for "everything except dead clicks"). This is
+  //      reported even when the selection still enables something: `{ pageView: true, scroll: false }`
+  //      keeps page views, so a check keyed only on a zero enabled count stays silent while click,
+  //      form, rageClick and deadClick are all lost.
+  //   2. A selection that names trackers but enables none — an unknown key (`{ pageview: true }`) or
+  //      a non-`true` value (`{ scroll: 'true' }` from a template, `{ scroll: 1 }` from a config
+  //      store). The `invalidKeys` warning above names the offending key but reads as "we ignored
+  //      that one", which understates a total loss of capture.
+  //
+  // Keyed on a written-out value rather than on key count, so the documented runtime-flag idiom
+  // `scroll: flag || undefined` stays silent when the flag is false — it embeds no misconception,
+  // exactly like `{}`. TS callers cannot write either mistake without a cast (AutoCaptureSelection's
+  // values are typed `true`), but JS and CDN callers can.
+  const enabled = trackerKeys.filter(key => selection[key] === true)
   const disabledKeys = trackerKeys.filter(key => selection[key] === false)
-  if (disabledKeys.length > 0) {
-    const enabled = trackerKeys.filter(key => selection[key] === true)
+  const namesSomething = Object.keys(selection).some(key => selection[key] !== undefined)
+
+  if (disabledKeys.length > 0 || (enabled.length === 0 && namesSomething)) {
+    const cause =
+      disabledKeys.length > 0
+        ? `\`false\` on ${disabledKeys.join(', ')} changes nothing: those trackers are off either way, as is ` +
+          'every key you did not list.'
+        : 'a tracker runs only when its key is set to `true`, and this selection sets none.'
     log.warn(
-      `autoCapture is an allowlist — only keys set to \`true\` are enabled — so \`false\` on ` +
-        `${disabledKeys.join(', ')} changes nothing: those trackers are off either way, as is every key you did ` +
-        `not list. This selection enables ${enabled.length > 0 ? enabled.join(', ') : 'nothing at all'}. Pass ` +
+      `autoCapture is an allowlist — only keys set to \`true\` are enabled — so ${cause} ` +
+        `This selection enables ${enabled.length > 0 ? enabled.join(', ') : 'nothing at all'}. Pass ` +
         '`false` as the whole autoCapture value to disable capture deliberately.',
     )
   }

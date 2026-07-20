@@ -49,12 +49,16 @@ export interface InitOptions {
   readonly batch?: Partial<BatchConfig>
   readonly dryRun?: boolean
   /**
-   * Logs the SDK's internal activity (events tracked, dropped calls and why, listener changes) to
-   * `console.debug`. Off by default. Warnings and errors are always logged regardless of this flag.
+   * Logs the SDK's internal activity to `console.debug`. Off by default.
    *
-   * Turn it on when events are not arriving: it reports each `track()` call and the reason for every
-   * drop (denied consent, `dryRun`, uninitialized). Note that `console.debug` output sits in
-   * DevTools' "Verbose" level, which is hidden until you enable it in the console's level filter.
+   * Turn it on when events are not arriving: it reports each `track()` call, the drops this flag
+   * governs (denied consent and `dryRun`), and whether auto-capture ended up with any trackers
+   * active. Note that `console.debug` output sits in DevTools' "Verbose" level, which is hidden
+   * until you enable it in the console's level filter.
+   *
+   * The drops this flag does *not* govern are the ones you never want hidden, so they are reported
+   * regardless: a call before `init()` and a bad config warn, and an event too malformed to encode
+   * errors. This flag can only widen what you see, never narrow it.
    */
   readonly debug?: boolean
   readonly session?: SessionConfig
@@ -229,9 +233,12 @@ export const optOutTracking = (): void => {
 /**
  * Whether events are being tracked right now. Reflects tracking consent only — independent of
  * `dryRun`, which suppresses delivery without changing consent. `false` before `init()` is accurate
- * rather than a placeholder: nothing is being tracked yet. To read the user's *recorded choice*
- * (which may be a persisted `'granted'` that this returns `false` for simply because `init()` has
- * not run), use `getTrackingConsent()`.
+ * rather than a placeholder: nothing is being tracked yet.
+ *
+ * To read the user's *recorded choice* instead — which may be a persisted `'granted'` that this
+ * returns `false` for simply because `init()` has not run — use `getTrackingConsent()` **after
+ * `init()`**. Before then neither getter can see a persisted choice: it is only read from storage
+ * during `init()`, so `getTrackingConsent()` answers `undefined` rather than guessing.
  */
 export const isTrackingEnabled = (): boolean => {
   if (!state) {

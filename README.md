@@ -55,17 +55,19 @@ Calls made through the snippet's stub before the bundle arrives are queued, and 
 
 ```html
 <script>
-  // Wrong: queued before load, so isTrackingEnabled() returns undefined and the banner always shows.
-  if (!pug.isTrackingEnabled()) showConsentBanner()
+  // Wrong: queued before load, so isTrackingEnabled() returns undefined and the toggle renders "off".
+  renderPrivacyToggle(pug.isTrackingEnabled())
 
   // Right: runs once the SDK has loaded and init has replayed, when the getter can actually answer.
   pug.ready(function () {
-    if (!pug.isTrackingEnabled()) showConsentBanner()
+    renderPrivacyToggle(pug.isTrackingEnabled())
   })
 </script>
 ```
 
 `ready()` exists only on the CDN build — under `npm install` the module is fully loaded before your code runs, so there is nothing to wait for.
+
+Note that `ready()` fixes *when* you read, not *which* getter you want. `isTrackingEnabled()` answers "are events flowing right now"; for the user's recorded choice see `getTrackingConsent()` in the [API reference](#tracking-consent-api) — and note that neither getter distinguishes "declined" from "never asked", so drive a consent banner from your own record of having shown it.
 
 </details>
 
@@ -108,7 +110,15 @@ init('your-project-id', {
 // Captures page views and clicks. scroll, form, rageClick and deadClick stay off.
 ```
 
-Because it is an allowlist rather than a denylist, there is no way to spell "everything except X". Setting a key to `false` never turns *other* trackers on: `{ scroll: false }` enables nothing at all, and `{ pageView: true, scroll: false }` enables only page views — click, form, rage click and dead click are off too. So the values are typed `true` and TypeScript rejects an explicit `false` — list what you want enabled, or pass `false` as the whole value to turn everything off deliberately. (Plain JS and the one-tag install aren't type-checked, so the SDK also warns at runtime when a selection sets any key to `false`, naming what it actually enabled.)
+Because it is an allowlist rather than a denylist, there is no way to spell "everything except X". Setting a key to `false` never turns *other* trackers on: `{ scroll: false }` enables nothing at all, and `{ pageView: true, scroll: false }` enables only page views — click, form, rage click and dead click are off too. So the values are typed `true` and TypeScript rejects an explicit `false` — list what you want enabled, or pass `false` as the whole value to turn everything off deliberately.
+
+For a value known only at runtime, write `|| undefined` so the key is omitted rather than set to `false`:
+
+```ts
+autoCapture: { pageView: true, scroll: enableScroll || undefined }
+```
+
+Plain JS and the one-tag install aren't type-checked, so the SDK also warns at runtime whenever a selection ends up enabling nothing — whether from an explicit `false`, a non-`true` value like `"true"` or `1` from a template or config store, or a misspelled key — and names what it actually enabled.
 
 For consent-first flows, start with tracking consent denied. While denied, automatic listeners are not attached, and manual `track()` and `identify()` are dropped (events are not queued for later replay). Set `persist: true` to remember the user's choice across reloads — it is persisted like identity (through the cross-subdomain cookie when active, so an opt-out on one subdomain applies on siblings, plus `localStorage`); otherwise consent is in-memory and you pass the initial value yourself on each `init()`.
 
@@ -138,8 +148,8 @@ optOutTracking()
 | `apiKey` | `string` | — | **Required.** API key. |
 | `endpoint` | `string` | `https://api.pugs.dev` | Backend base URL. |
 | `batch` | `Partial<BatchConfig>` | — | Batching overrides (size, wait, storage key). |
-| `debug` | `boolean` | `false` | Logs internal activity (each event tracked, every dropped call and why) to `console.debug`. Turn it on when events aren't arriving. Warnings and errors are always logged regardless. See [Debugging](#debugging). |
-| `dryRun` | `boolean` | `false` | Builds events as normal but never sends them. Consent is unaffected — `isTrackingEnabled()` still reports `true`. |
+| `debug` | `boolean` | `false` | Logs internal activity (each event tracked, plus the consent-denied and `dryRun` drops) to `console.debug`. Turn it on when events aren't arriving. Warnings and errors are always logged regardless, so this can only widen what you see. See [Debugging](#debugging). |
+| `dryRun` | `boolean` | `false` | Builds events as normal but never sends them. Does not change consent, or what `isTrackingEnabled()` reports. |
 | `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object is an **allowlist** enabling only the keys set to `true`, with every omitted key off. |
 | `trackingConsent` | `'granted' \| 'denied' \| TrackingConsentConfig` | `'granted'` | Initial consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored. Object form: `default` seeds the first run; `persist: true` remembers the choice across reloads. |
 | `crossSubdomainTracking` | `boolean \| { domain: string }` | `false` | **Off by default** — sharing identity across subdomains weakens browser isolation from same-origin to same-site, so it is an explicit opt-in. `false` keeps persistence origin-scoped in `localStorage`; `true` shares identity (anonymous ID, external ID, session, consent) across subdomains via a first-party cookie on the auto-discovered registrable domain, and `{ domain }` pins that cookie domain explicitly. See [Cross-subdomain tracking](#cross-subdomain-tracking) for fallback behavior and the multi-tenant caveat. |
@@ -259,7 +269,7 @@ track('error_occurred', { errorCode: 'PAYMENT_FAILED' }, { immediate: true })
 
 ### Debugging
 
-If events aren't arriving, pass `debug: true` to `init()`. The SDK then logs every `track()` call and the reason for each dropped one — denied consent, `dryRun`, or a call made before `init()`:
+If events aren't arriving, pass `debug: true` to `init()`. The SDK then logs every `track()` call, the drops this flag governs — denied consent and `dryRun` — and whether auto-capture ended up with any trackers active:
 
 ```ts
 init('your-project-id', { apiKey: 'your-api-key', debug: true })
@@ -270,7 +280,7 @@ On the one-tag install, pass it through `data-options`: `data-options='{"debug":
 Two things worth knowing:
 
 - Debug output goes to `console.debug`, which browsers file under the **Verbose** log level. It is hidden until you enable Verbose in the DevTools console's level filter — an empty console does not mean the SDK is silent.
-- Warnings and errors are never gated behind this flag. A rejected batch, a bad API key, or a misconfigured option is reported whether or not `debug` is on.
+- Warnings and errors are never gated behind this flag, so it can only widen what you see, never narrow it. A rejected batch, a bad API key, a misconfigured option, or a `track()` call made before `init()` is reported whether or not `debug` is on.
 
 Every line the SDK logs is prefixed with `[Pug SDK]`, so filtering the console on that string isolates its output.
 
@@ -282,6 +292,22 @@ Typing is **compile-time only**: at runtime every event takes the same path and 
 
 What the types do catch is a wrong type on a known field — `track('purchase', { amount: '49' })` is a compile error, since `amount` is a number. What they don't catch is anything only the server knows: field constraints (`amount > 0`, `currency` matching `^[A-Z]{3}$`), and required fields. Those are enforced server-side and surface as a rejected request, so the editor is your first line of defense and not your only one.
 
+A few fields are 64-bit integers and take a `bigint` rather than a `number` — `sizeBytes` on the file, export and chat-attachment events. Write them with the `n` suffix: `track('file_uploaded', { fileId: 'f1', sizeBytes: 1024n })`. `WELL_KNOWN_EVENTS.md` marks each one `bigint`. Property values may also be `Date`, which is sent as a timestamp.
+
 See **[WELL_KNOWN_EVENTS.md](./WELL_KNOWN_EVENTS.md)** for the full list — each event's properties, types, and server-side constraints — grouped into these domains:
 
 [API](./WELL_KNOWN_EVENTS.md#api) · [App](./WELL_KNOWN_EVENTS.md#app) · [Auth](./WELL_KNOWN_EVENTS.md#auth) · [Billing](./WELL_KNOWN_EVENTS.md#billing) · [Chat](./WELL_KNOWN_EVENTS.md#chat) · [Commerce](./WELL_KNOWN_EVENTS.md#commerce) · [Discovery](./WELL_KNOWN_EVENTS.md#discovery) · [Error](./WELL_KNOWN_EVENTS.md#error) · [File](./WELL_KNOWN_EVENTS.md#file) · [Form](./WELL_KNOWN_EVENTS.md#form) · [Integration](./WELL_KNOWN_EVENTS.md#integration) · [Invitation](./WELL_KNOWN_EVENTS.md#invitation) · [Media](./WELL_KNOWN_EVENTS.md#media) · [Navigation](./WELL_KNOWN_EVENTS.md#navigation) · [Notification](./WELL_KNOWN_EVENTS.md#notification) · [Social](./WELL_KNOWN_EVENTS.md#social) · [Support](./WELL_KNOWN_EVENTS.md#support) · [Workspace](./WELL_KNOWN_EVENTS.md#workspace)
+
+## Upgrading
+
+### Unreleased — type-only breaking changes
+
+These are all **compile-time** breaks for TypeScript consumers. Runtime behavior is unchanged, so JavaScript and one-tag installs are unaffected.
+
+| Change | What breaks | Fix |
+|---|---|---|
+| `autoCapture` values are `true`, not `boolean` | `{ scroll: false }` and any `boolean`-typed value | List only what you want enabled; for a runtime value write `scroll: flag \|\| undefined` |
+| `track()` is one signature, not two overloads | A wrong type on a well-known field now errors instead of silently compiling | Correct the property type — the error names it |
+| `getTrackingConsent()` returns `TrackingConsent \| undefined` | Code assuming a non-optional return under `strictNullChecks` | Handle `undefined`, which means "called before `init()`" |
+
+The `track()` change also surfaced an int64 issue that the old permissive overload had been hiding: `sizeBytes` on the file, export and chat-attachment events is a `bigint`, so pass `1024n` rather than `1024`. It never encoded correctly as a plain number — the overload just made it compile.

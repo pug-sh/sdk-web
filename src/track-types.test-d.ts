@@ -10,7 +10,14 @@
  * Keep each `@ts-expect-error` call on a single line — the directive only applies to the line that
  * follows it, so a formatter-wrapped call would silently stop being checked.
  */
-import { type TrackEventProps, type TrackFn, type TrackOptions, track, type WellKnownEventName } from './index.js'
+import {
+  type AutoCaptureSelection,
+  type TrackEventProps,
+  type TrackFn,
+  type TrackOptions,
+  track,
+  type WellKnownEventName,
+} from './index.js'
 
 // ── Well-known events: correct payloads must compile ─────────────────────────────────────────────
 track('purchase', { productId: 'sku_123', amount: 49, currency: 'USD' })
@@ -18,6 +25,16 @@ track('purchase', {})
 
 // Extra properties beyond the typed ones are always allowed, and sent as custom properties.
 track('purchase', { amount: 49, currency: 'USD', ourOwnField: 'allowed' })
+
+// ── int64 and Date properties must be writable ───────────────────────────────────────────────────
+// protobuf-es maps proto `int64` to `bigint`, so five well-known events (file_uploaded,
+// file_downloaded, export_completed, chat_attachment_uploaded, chat_attachment_downloaded) carry
+// `bigint` fields. The old permissive overload absorbed these silently; when it was removed they
+// became unwritable in *every* spelling — `number` fails the message shape, and `bigint` failed the
+// `Record<string, JsonValue>` half. `PropValue` is what makes both halves agree, and it matches what
+// `jsValueToPropertyValue` accepts at runtime (bigint -> intValue, Date -> timestampValue).
+track('file_uploaded', { fileId: 'f1', sizeBytes: 1024n })
+track('my_custom_event', { when: new Date(), big: 7n })
 
 // ── Custom events: any other string, with loose props ────────────────────────────────────────────
 track('upgrade_clicked', { source: 'settings' })
@@ -63,3 +80,24 @@ wrap('purchase', { productId: 'sku_123', amount: 49, currency: 'USD' })
 
 // @ts-expect-error — amount is typed number, through the wrapper too
 wrap('purchase', { amount: '49' })
+
+// ── autoCapture is an allowlist, and `false` must stay unwritable ────────────────────────────────
+// `{ scroll: false }` reads as "everything except scroll" but enables nothing at all. The runtime
+// warning covers JS and CDN callers; these pin the compile-time half, which nothing else does —
+// pug.test.ts reaches those shapes through `as never` casts, so reverting the values to `boolean`
+// would leave the whole suite green.
+
+declare const runtimeFlag: boolean
+
+// A selection may enable trackers, and may omit any it does not want.
+export const selection: AutoCaptureSelection = { pageView: true, click: true }
+
+// The documented idiom for a value known only at runtime. Must keep compiling — including under
+// `exactOptionalPropertyTypes`, which is why the values are `true | undefined` rather than `true`.
+export const dynamic: AutoCaptureSelection = { scroll: runtimeFlag || undefined }
+
+// @ts-expect-error — `false` is the allowlist misread as a denylist
+export const denylist: AutoCaptureSelection = { scroll: false }
+
+// @ts-expect-error — a boolean-typed value would admit `false` at runtime
+export const widened: AutoCaptureSelection = { scroll: runtimeFlag }
