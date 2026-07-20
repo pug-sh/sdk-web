@@ -234,6 +234,14 @@ export const createBatchedTransport = (
 
   const inner = createTransport(endpoint, apiKey)
   const storage = createDefaultQueueStorage(storageKey, maxQueueSize)
+  // Cookieless events must never touch the device: they bypass the
+  // localStorage-backed queue for a memory-only twin. Cost, accepted: a
+  // hard-killed tab loses up to maxWaitMs of cookieless events (the beacon
+  // covers ordinary navigation) — the alternative is persisting event
+  // payloads, which is the thing cookieless mode promises not to do.
+  const cookielessStorage = createMemoryQueueStorage(maxQueueSize)
+  const storageFor = (event: Event) => (event.cookieless ? cookielessStorage : storage)
+  const totalSize = () => storage.size + cookielessStorage.size
   let timer: ReturnType<typeof setTimeout> | null = null
   let state: TransportState = 'idle'
 
@@ -259,7 +267,10 @@ export const createBatchedTransport = (
       return
     }
     clearTimer()
-    const batch = storage.lock(maxSize)
+    // One in-flight batch at a time (the state machine serializes); each queue
+    // keeps its own lock, so the target picks whichever has pending events.
+    const target = storage.size > 0 ? storage : cookielessStorage
+    const batch = target.lock(maxSize)
     if (batch.length === 0) {
       return
     }
@@ -270,14 +281,14 @@ export const createBatchedTransport = (
       .sendBatch(batch)
       .then(res => {
         warnIfPartiallyAccepted(res.accepted, batch.length)
-        storage.commit()
+        target.commit()
       })
       .catch(err => {
         if (isPermanentError(err)) {
-          storage.commit()
+          target.commit()
           log.error(`Permanent error, ${batch.length} events dropped (will NOT retry):`, err)
         } else {
-          storage.rollback()
+          target.rollback()
           log.warn('Transient error sending batch, will retry:', err)
         }
       })
@@ -286,7 +297,7 @@ export const createBatchedTransport = (
           return
         }
         state = 'idle'
-        if (storage.size > 0) {
+        if (totalSize() > 0) {
           scheduleFlush()
         }
       })
@@ -299,23 +310,28 @@ export const createBatchedTransport = (
     clearTimer()
     if (state === 'flushing') {
       // In-flight flush owns the locked events. Best-effort beacon the
-      // unlocked tail — they stay in the queue regardless, so duplicates
-      // are possible if the page survives but events aren't lost.
-      const unlocked = storage.peekUnlocked()
+      // unlocked tail from both queues — they stay queued regardless, so
+      // duplicates are possible if the page survives but events aren't lost.
+      const unlocked = [...storage.peekUnlocked(), ...cookielessStorage.peekUnlocked()]
       if (unlocked.length > 0) {
         inner.beacon?.(unlocked)
       }
       return
     }
-    // Drain the entire queue — there may not be another chance to send on page hide.
-    const batch = storage.lock(storage.size)
+    // Drain both queues in one payload — there may not be another chance to
+    // send on page hide, and BatchCreate accepts mixed events.
+    const a = storage.lock(storage.size)
+    const b = cookielessStorage.lock(cookielessStorage.size)
+    const batch = [...a, ...b]
     if (batch.length === 0) {
       return
     }
     if (inner.beacon?.(batch)) {
       storage.commit()
+      cookielessStorage.commit()
     } else {
       storage.rollback()
+      cookielessStorage.rollback()
       log.warn(`sendBeacon failed for ${batch.length} events; they remain queued for next flush.`)
     }
   }
@@ -343,13 +359,13 @@ export const createBatchedTransport = (
             log.error('Permanent error sending event, dropping:', err)
             return
           }
-          storage.push(event)
+          storageFor(event).push(event)
           scheduleFlush()
         }
         return
       }
-      storage.push(event)
-      if (storage.size >= maxSize) {
+      storageFor(event).push(event)
+      if (totalSize() >= maxSize) {
         flush()
       } else {
         scheduleFlush()
@@ -360,26 +376,40 @@ export const createBatchedTransport = (
       state = 'destroyed'
       clearTimer()
       storage.dispose()
+      cookielessStorage.dispose()
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('pagehide', beaconFlush)
 
-      // If a flush is in-flight, its locked batch will complete normally via
-      // the existing promise chain. Best-effort beacon the unlocked tail.
-      if (storage.size > 0 && storage.lock(storage.size).length === 0) {
-        const unlocked = storage.peekUnlocked()
-        if (unlocked.length > 0) {
-          inner.beacon?.(unlocked)
-        }
-        return
-      }
-
-      const remaining = storage.lock(storage.size)
-      if (remaining.length > 0) {
-        if (inner.beacon?.(remaining)) {
-          storage.commit()
+      // If a flush is in-flight it owns that queue's lock: its events are
+      // beaconed best-effort via peek and NEVER committed here (committing
+      // under a held lock would splice the in-flight batch out from under the
+      // flush's own commit/rollback). A queue we lock ourselves is committed
+      // on beacon success as before.
+      const a = storage.lock(storage.size)
+      const b = cookielessStorage.lock(cookielessStorage.size)
+      const payload = [
+        ...a,
+        ...b,
+        ...(a.length === 0 ? storage.peekUnlocked() : []),
+        ...(b.length === 0 ? cookielessStorage.peekUnlocked() : []),
+      ]
+      if (payload.length > 0) {
+        if (inner.beacon?.(payload)) {
+          if (a.length > 0) {
+            storage.commit()
+          }
+          if (b.length > 0) {
+            cookielessStorage.commit()
+          }
         } else {
-          // Beacon failed — leave events in the queue for recovery on next init.
-          storage.rollback()
+          // Beacon failed — leave events queued (the persisted queue recovers
+          // consented events on next init; cookieless ones are lost with the page).
+          if (a.length > 0) {
+            storage.rollback()
+          }
+          if (b.length > 0) {
+            cookielessStorage.rollback()
+          }
         }
       }
     },

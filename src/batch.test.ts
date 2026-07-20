@@ -117,3 +117,43 @@ describe('createBatchedTransport partial-acceptance reporting (C1)', () => {
     warnSpy.mockRestore()
   })
 })
+
+describe('cookieless queue routing', () => {
+  const cookielessEvt = (id: string): Event => create(EventSchema, { eventId: id, kind: 'k', cookieless: true })
+  const consentedEvt = (id: string): Event => create(EventSchema, { eventId: id, kind: 'k', sessionId: 's', distinctId: 'd' })
+
+  it('never writes cookieless events to localStorage, even while retrying', async () => {
+    const project = freshProject()
+    const t = createBatchedTransport(ENDPOINT, KEY, project, { maxSize: 10, maxWaitMs: 50 })
+    // Transient failure keeps the event queued past the localStorage queue's 1s
+    // debounced persist — a single-queue implementation would write it to disk here.
+    sendBatch.mockRejectedValue(new RpcError('down', GrpcCode.Unavailable))
+    await t.send(cookielessEvt('c1'))
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(localStorage.getItem(`__pug_${project}_queue__`)).toBeNull()
+    t.destroy()
+  })
+
+  it('flushes both queues', async () => {
+    const t = createBatchedTransport(ENDPOINT, KEY, freshProject(), { maxSize: 10, maxWaitMs: 50 })
+    sendBatch.mockResolvedValue(okResponse(1))
+    await t.send(consentedEvt('a'))
+    await t.send(cookielessEvt('c'))
+    await vi.advanceTimersByTimeAsync(200)
+    const sentIds = sendBatch.mock.calls.flatMap(([events]: [Event[]]) => events.map(e => e.eventId))
+    expect(sentIds.sort()).toEqual(['a', 'c'])
+    t.destroy()
+  })
+
+  it('beacon drains both queues on page hide', async () => {
+    const t = createBatchedTransport(ENDPOINT, KEY, freshProject(), { maxSize: 10, maxWaitMs: 60_000 })
+    await t.send(consentedEvt('a'))
+    await t.send(cookielessEvt('c'))
+    window.dispatchEvent(new Event('pagehide'))
+    // Listeners from earlier tests' undestroyed transports also fire on this
+    // dispatch; ours registered last, so its combined-drain call is the last one.
+    const [lastBatch = []] = (beacon.mock.calls.at(-1) ?? []) as [Event[]]
+    expect(lastBatch.map(e => e.eventId).sort()).toEqual(['a', 'c'])
+    t.destroy()
+  })
+})
