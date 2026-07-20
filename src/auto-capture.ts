@@ -139,11 +139,12 @@ const validateAutoCapture = (autoCapture: AutoCaptureConfig | undefined): void =
 
 /**
  * Owns the auto-capture lifecycle. Holds the desired selection and reconciles the live SDK
- * listeners against it, gated by consent (read via `isConsentGranted`): while consent is denied no
- * listener runs, regardless of the desired selection. Cleanup is tracked per tracker so the
- * selection can be changed at runtime without tearing down listeners that stay enabled.
+ * listeners against it, gated by tracking being active (read via `isTrackingActive` — true for
+ * granted AND cookieless consent, not just full consent): while tracking is off no listener runs,
+ * regardless of the desired selection. Cleanup is tracked per tracker so the selection can be
+ * changed at runtime without tearing down listeners that stay enabled.
  */
-export const createAutoCaptureController = (track: TrackFn, isConsentGranted: () => boolean) => {
+export const createAutoCaptureController = (track: TrackFn, isTrackingActive: () => boolean) => {
   const cleanups = new Map<AutoCaptureKey, () => void>()
   let desired: AutoCaptureConfig | undefined
 
@@ -173,10 +174,10 @@ export const createAutoCaptureController = (track: TrackFn, isConsentGranted: ()
     }
   }
 
-  // Effective listeners = desired selection gated by consent. Idempotent: already-enabled trackers
-  // that stay enabled are left untouched (no teardown + re-setup).
+  // Effective listeners = desired selection gated by tracking being active. Idempotent:
+  // already-enabled trackers that stay enabled are left untouched (no teardown + re-setup).
   const reconcile = (): void => {
-    const enabledTrackers = new Set(isConsentGranted() ? resolveAutoCapture(desired) : [])
+    const enabledTrackers = new Set(isTrackingActive() ? resolveAutoCapture(desired) : [])
 
     for (const key of trackerKeys) {
       if (!enabledTrackers.has(key)) {

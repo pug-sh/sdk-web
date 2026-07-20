@@ -168,7 +168,7 @@ export const init = (projectId: string, options: InitOptions) => {
   configureUrlSanitizer(options.sanitizeUrl)
 
   const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
-  const autoCapture = createAutoCaptureController(track, trackingConsent.isGranted)
+  const autoCapture = createAutoCaptureController(track, trackingConsent.isTracking)
 
   state = {
     config,
@@ -182,10 +182,13 @@ export const init = (projectId: string, options: InitOptions) => {
   if (state.dryRun) {
     log.warn('Dry run mode enabled — events will not be sent.')
   }
-  if (!state.trackingConsent.isGranted()) {
+  if (state.trackingConsent.getConsent() === 'denied') {
     log.warn(
       'Tracking consent is denied — automatic capture is off and track()/identify() are dropped until optInTracking() is called. Check isTrackingEnabled() to detect this state.',
     )
+  }
+  if (state.trackingConsent.getConsent() === 'cookieless') {
+    log.debug('Cookieless mode: events flow without stored identity; identify() is disabled until consent is granted.')
   }
 
   state.autoCapture.setDesired(options.autoCapture)
@@ -204,31 +207,38 @@ export const setAutoCapture = (autoCapture: AutoCaptureConfig): void => {
   }
 }
 
-export const optInTracking = (): void => {
+/**
+ * Sets the tracking consent state — the general form of optInTracking()/optOutTracking(),
+ * covering the third state: 'cookieless' keeps events flowing with a server-derived,
+ * daily-rotating anonymous identity and writes nothing to the device.
+ *
+ * Leaving 'granted' purges persisted identity (profile + session, including the
+ * cross-subdomain cookie) — no identifier may linger for a user who withdrew consent.
+ * Granting later mints a fresh identity lazily on the next event; pre-consent events
+ * stay permanently anonymous (no retroactive linking).
+ */
+export const setTrackingConsent = (consent: TrackingConsent): void => {
   if (!state) {
-    log.warn('optInTracking() called before init().')
+    log.warn('setTrackingConsent() called before init().')
     return
   }
-  state.trackingConsent.optIn()
+  state.trackingConsent.set(consent)
   state.autoCapture.apply()
-  log.debug('Tracking opted in.')
+  if (state.trackingConsent.getConsent() !== 'granted') {
+    // Idempotent teardown: required leaving 'granted', harmless from any other
+    // state (cookieless persisted nothing; denied already tore down).
+    clearProfile()
+    clearSession()
+  }
+  log.debug(`Tracking consent set to "${state.trackingConsent.getConsent()}".`)
 }
 
-export const optOutTracking = (): void => {
-  if (!state) {
-    log.warn('optOutTracking() called before init().')
-    return
-  }
-  state.trackingConsent.optOut()
-  state.autoCapture.apply()
-  // Opting out is a privacy action, so tear down persisted identity: no identifiers should linger
-  // for a user who asked not to be tracked. In cross-subdomain mode this clears the shared cookie,
-  // propagating the identity teardown across sibling subdomains. Consent itself stays persisted
-  // (device-level) so the opt-out survives reloads; a later optInTracking() starts a fresh identity.
-  clearProfile()
-  clearSession()
-  log.debug('Tracking opted out.')
-}
+export const optInTracking = (): void => setTrackingConsent('granted')
+
+// Opting out is a privacy action; setTrackingConsent('denied') tears down persisted
+// identity (see its JSDoc). Consent itself stays persisted (device-level) so the
+// opt-out survives reloads; a later optInTracking() starts a fresh identity.
+export const optOutTracking = (): void => setTrackingConsent('denied')
 
 /**
  * Whether events are being tracked right now. Reflects tracking consent only — independent of
@@ -245,7 +255,9 @@ export const isTrackingEnabled = (): boolean => {
     log.warn('isTrackingEnabled() called before init().')
     return false
   }
-  return state.trackingConsent.isGranted()
+  // True whenever events flow — full consent OR cookieless mode. Use
+  // getTrackingConsent() to distinguish the two.
+  return state.trackingConsent.isTracking()
 }
 
 /**
@@ -331,7 +343,11 @@ export const identify = async (externalId: string, traits?: Record<string, JsonV
       return
     }
     if (!state.trackingConsent.isGranted()) {
-      log.debug('identify() dropped because tracking consent is denied.')
+      log.debug(
+        state.trackingConsent.getConsent() === 'cookieless'
+          ? 'identify() dropped in cookieless mode — grant consent to enable identity.'
+          : 'identify() dropped because tracking consent is denied.',
+      )
       return
     }
     if (state.dryRun) {
@@ -384,20 +400,21 @@ export const track: TrackFn = (kind: string, props?: Record<string, unknown>, op
       return
     }
 
-    if (!state.trackingConsent.isGranted()) {
+    const consent = state.trackingConsent.getConsent()
+    if (consent === 'denied') {
       log.debug(`track("${kind}") dropped because tracking consent is denied.`)
       return
     }
 
     log.debug(`track("${kind}")`)
     const immediate = opts?.immediate ?? false
-    const event = toEvent(
-      state.config.projectId,
-      kind,
-      { sessionId: resolveSessionId(), distinctId: resolveDistinctId() },
-      props,
-      opts,
-    )
+    // Cookieless: the server derives identity; the identity modules are never
+    // touched, so their lazy-create/refresh paths cannot write anything.
+    const identity =
+      consent === 'cookieless'
+        ? ({ cookieless: true } as const)
+        : { sessionId: resolveSessionId(), distinctId: resolveDistinctId() }
+    const event = toEvent(state.config.projectId, kind, identity, props, opts)
     if (!event) {
       // error already logged by toEvent
       return

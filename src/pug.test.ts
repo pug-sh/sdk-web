@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearProfile, configureProfile, getAnonymousId, isIdentified, markIdentified } from './profile.js'
-import { clearSession, configureSession } from './session.js'
+import { clearProfile, configureProfile, getAnonymousId, isIdentified, markIdentified, resolveDistinctId } from './profile.js'
+import { clearSession, configureSession, resolveSessionId } from './session.js'
 import { makeStorageKey } from './utils.js'
 
 const logSpies = {
@@ -785,5 +785,59 @@ describe('crossSubdomainTracking wiring', () => {
     expect(logSpies.warn).toHaveBeenCalledWith(
       'crossSubdomainTracking domain "example.com" is not usable on "localhost"; using a host-only cookie instead.',
     )
+  })
+})
+
+describe('cookieless mode', () => {
+  it('track() sends identity-free flagged events and never touches session/profile', async () => {
+    const { init, track } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'cookieless' })
+    track('page_view')
+    const [event] = transportSpies.send.mock.calls.at(-1) ?? []
+    expect(event.cookieless).toBe(true)
+    expect(event.distinctId).toBe('')
+    expect(event.sessionId).toBe('')
+    expect(vi.mocked(resolveSessionId)).not.toHaveBeenCalled()
+    expect(vi.mocked(resolveDistinctId)).not.toHaveBeenCalled()
+  })
+
+  it('auto-capture listeners run in cookieless mode', async () => {
+    const { init } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'cookieless', autoCapture: true })
+    expect(trackerSpies.pageView).toHaveBeenCalled()
+  })
+
+  it('identify() drops at debug level in cookieless mode', async () => {
+    const { init, identify } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'cookieless' })
+    await identify('user@example.com')
+    expect(unaryCallSpy).not.toHaveBeenCalled()
+    expect(logSpies.debug).toHaveBeenCalledWith(expect.stringContaining('cookieless'))
+  })
+
+  it('setTrackingConsent granted->cookieless purges identity; ->granted mints nothing eagerly', async () => {
+    const { init, setTrackingConsent } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    setTrackingConsent('cookieless')
+    expect(vi.mocked(clearProfile)).toHaveBeenCalled()
+    expect(vi.mocked(clearSession)).toHaveBeenCalled()
+    setTrackingConsent('granted')
+    // Fresh identity is lazy — nothing resolves until the next event.
+    expect(vi.mocked(resolveDistinctId)).not.toHaveBeenCalled()
+  })
+
+  it('isTrackingEnabled() is true in cookieless mode; getTrackingConsent() reports it', async () => {
+    const { init, isTrackingEnabled, getTrackingConsent } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'cookieless' })
+    expect(isTrackingEnabled()).toBe(true)
+    expect(getTrackingConsent()).toBe('cookieless')
+  })
+
+  it('denied -> cookieless starts listeners (reconcile turns capture on)', async () => {
+    const { init, setTrackingConsent } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'denied', autoCapture: true })
+    expect(trackerSpies.pageView).not.toHaveBeenCalled()
+    setTrackingConsent('cookieless')
+    expect(trackerSpies.pageView).toHaveBeenCalled()
   })
 })
