@@ -11,6 +11,24 @@ export interface TrackingConsentConfig {
   readonly persist?: boolean
 }
 
+/**
+ * A consent predicate, nominally tagged with the question it answers.
+ *
+ * `isGranted` and `isTracking` are both `() => boolean` and are injected positionally into optional
+ * parameters, so passing the wrong one compiled silently — and one such swap (`configureProfile`
+ * receiving `isTracking`) was invisible to the entire test suite while re-writing a durable
+ * `externalId` to the device in cookieless mode. The phantom member makes the two mutually
+ * unassignable without changing anything at runtime.
+ *
+ * It is **optional** on purpose: a plain `() => boolean` (tests, non-`init()` callers) still
+ * satisfies either gate, so the fence costs nothing at call sites that don't care.
+ */
+export type ConsentGate<K extends string> = (() => boolean) & { readonly __gate?: K }
+/** May we write identity to the device? Full consent only. */
+export type GrantedGate = ConsentGate<'granted'>
+/** Are events flowing at all? Granted **or** cookieless. */
+export type TrackingGate = ConsentGate<'tracking'>
+
 /** Narrows an untrusted value to a valid consent state. Everything else is out-of-domain. */
 const isConsent = (value: unknown): value is TrackingConsent =>
   value === 'granted' || value === 'denied' || value === 'cookieless'
@@ -35,6 +53,16 @@ export const createTrackingConsent = (
   } else {
     log.warn(`Invalid trackingConsent config ${JSON.stringify(raw)}; failing closed to 'denied'.`)
     normalized = { default: 'denied' }
+  }
+  // Non-boolean `persist` silently becomes false, and it fails quietly in every direction: consent
+  // stays in memory, init()'s purge never fires (isAuthoritative() is false), and set() still
+  // reports success because write() short-circuits on !persist. The CDN one-tag install feeds this
+  // from `data-options` JSON, where `"persist": "true"` is the obvious mistake — so say so, as every
+  // other untrusted field here already does.
+  if (normalized.persist !== undefined && typeof normalized.persist !== 'boolean') {
+    log.warn(
+      `Invalid trackingConsent.persist ${JSON.stringify(normalized.persist)}; expected a boolean. Treating it as false — the choice will not survive a reload.`,
+    )
   }
   const persist = normalized.persist === true
   const storageKey = makeStorageKey(projectId, 'consent')
@@ -124,7 +152,7 @@ export const createTrackingConsent = (
      */
     isAuthoritative: (): boolean => persist && restoredFromStorage,
     /** True only for full consent — gates identity-storage writes, NOT event flow. */
-    isGranted: (): boolean => status === 'granted',
+    isGranted: ((): boolean => status === 'granted') as GrantedGate,
     /**
      * True when events flow at all (granted or cookieless). Gates automatic listener attachment
      * (auto-capture) and answers the public isTrackingEnabled().
@@ -134,7 +162,7 @@ export const createTrackingConsent = (
      * branches on getConsent() directly, since it needs all three states — 'denied' drops, and
      * 'cookieless' takes the identity-free path rather than merely being allowed through.
      */
-    isTracking: (): boolean => status === 'granted' || status === 'cookieless',
+    isTracking: ((): boolean => status === 'granted' || status === 'cookieless') as TrackingGate,
     set,
     optIn: (): boolean => set('granted'),
     optOut: (): boolean => set('denied'),

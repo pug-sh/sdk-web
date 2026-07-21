@@ -167,7 +167,7 @@ With `crossSubdomainTracking: true`, identity is written to a first-party cookie
 
 | Function | Description |
 |---|---|
-| `setTrackingConsent(state)` | Sets the consent state: `'granted'`, `'cookieless'`, or `'denied'`. Leaving `'granted'` deletes the stored identity (profile + session + tab registry, including the cross-subdomain cookie); granting later starts a fresh identity on the next event — pre-consent events are never linked to it. **Returns `false`** if the change did not fully take effect: an unrecognized state (consent then fails closed to `'denied'`), a choice that could not be persisted, or an identifier that could not be removed. See [Handling a failed consent change](#handling-a-failed-consent-change). |
+| `setTrackingConsent(state)` | Sets the consent state: `'granted'`, `'cookieless'`, or `'denied'`. Leaving `'granted'` deletes the stored identity (profile + session + tab registry + any queued events, including the cross-subdomain cookie); events already collected under valid consent get one final send attempt on the way out, so a withdrawal drops them from the device without discarding data the user had agreed to. Granting later starts a fresh identity on the next event — pre-consent events are never linked to it. **Returns `false`** if the change did not fully take effect: an unrecognized state (consent then fails closed to `'denied'`), a choice that could not be persisted, or an identifier that could not be removed. See [Handling a failed consent change](#handling-a-failed-consent-change). |
 | `optInTracking()` | Shorthand for `setTrackingConsent('granted')`: applies the stored `autoCapture` selection and allows `track()` / `identify()` to send with a persistent identity. Returns the same boolean. |
 | `optOutTracking()` | Shorthand for `setTrackingConsent('denied')`: tears down automatic listeners and drops future `track()` / `identify()` calls entirely. Returns the same boolean. |
 | `isTrackingEnabled()` | Whether events are flowing right now — `true` for both `'granted'` and `'cookieless'` (use `getTrackingConsent()` to distinguish). Independent of `dryRun`, which suppresses delivery without changing consent. Warns and returns `false` before `init()`, which is accurate: nothing is being tracked yet. |
@@ -218,12 +218,28 @@ when the change fully took effect, and `false` in three cases worth handling in 
   state applies in memory, but the next page load falls back to the `default` seed — so an opt-out
   can quietly become a re-consent.
 - **A stored identifier could not be removed.** With `crossSubdomainTracking` this means the identity
-  cookie survived on the registrable domain and will resurface.
+  cookie survived on the registrable domain and will resurface. This also covers the persisted event
+  queue, whose payloads carry the identity attached at collection time.
 
 ```js
-if (!pug.setTrackingConsent(choice)) {
-  // Surface it — don't assume the device is clean or that the choice will survive a reload.
-  reportConsentFailure(pug.getTrackingConsent())
+// Script-tag install: wrap in ready() so the call runs against the real SDK. Before the bundle
+// loads, every stub method returns `undefined` — and `!undefined` is truthy, so the bare form
+// below would report a failure that never happened, with a state of `undefined`.
+pug.ready(function () {
+  if (!pug.setTrackingConsent(choice)) {
+    // Surface it — don't assume the device is clean or that the choice will survive a reload.
+    reportConsentFailure(pug.getTrackingConsent())
+  }
+})
+```
+
+With an `npm` install there is no queue and no stub, so the direct form is fine:
+
+```ts
+import { getTrackingConsent, setTrackingConsent } from '@pug-sh/browser'
+
+if (!setTrackingConsent(choice)) {
+  reportConsentFailure(getTrackingConsent())
 }
 ```
 
@@ -300,8 +316,16 @@ Use `reset()` when a user signs out or switches accounts:
 ```ts
 import { reset } from '@pug-sh/browser'
 
-reset()
+if (!reset()) {
+  // The previous user's identity may still be on this device — worth surfacing on a shared machine.
+}
 ```
+
+It clears the stored profile, starts a fresh session and device ID, and drops any queued events
+(sending them once first, since they were collected while that user was signed in) so the next
+person on a shared device does not inherit them. Like `setTrackingConsent()`, it **returns `false`**
+when something could not be removed — with `crossSubdomainTracking` that means an identity cookie
+survived on the registrable domain, which is exactly the case a logout needs to know about.
 
 #### `track(event, properties?, options?)`
 

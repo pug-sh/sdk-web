@@ -5,6 +5,7 @@ import { setupPageViewTracking } from './events/page_view.js'
 import { setupScrollTracking } from './events/scroll.js'
 import { log } from './logger.js'
 import type { TrackFn } from './track.js'
+import type { TrackingGate } from './tracking-consent.js'
 
 /**
  * Per-listener allowlist for automatic capture.
@@ -144,7 +145,7 @@ const validateAutoCapture = (autoCapture: AutoCaptureConfig | undefined): void =
  * regardless of the desired selection. Cleanup is tracked per tracker so the selection can be
  * changed at runtime without tearing down listeners that stay enabled.
  */
-export const createAutoCaptureController = (track: TrackFn, isTrackingActive: () => boolean) => {
+export const createAutoCaptureController = (track: TrackFn, isTrackingActive: TrackingGate) => {
   const cleanups = new Map<AutoCaptureKey, () => void>()
   let desired: AutoCaptureConfig | undefined
 

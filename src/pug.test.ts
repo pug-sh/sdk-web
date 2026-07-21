@@ -35,6 +35,9 @@ const cleanupSpies = {
 const transportSpies = {
   send: vi.fn(() => Promise.resolve()),
   destroy: vi.fn(),
+  // Consent teardown drops the persisted event queue too. Omitting it here made every consent
+  // transition in this file throw a swallowed TypeError and silently report failure.
+  purgeQueue: vi.fn(() => true),
 }
 
 const unaryCallSpy = vi.fn(() => Promise.resolve({}))
@@ -80,7 +83,7 @@ vi.mock('./events/frustration.js', () => ({
 }))
 
 vi.mock('./session.js', () => ({
-  clearSession: vi.fn(),
+  clearSession: vi.fn(() => true),
   configureSession: vi.fn(),
   destroySession: vi.fn(),
   resetIdentity: vi.fn(),
@@ -88,7 +91,7 @@ vi.mock('./session.js', () => ({
 }))
 
 vi.mock('./profile.js', () => ({
-  clearProfile: vi.fn(),
+  clearProfile: vi.fn(() => true),
   configureProfile: vi.fn(),
   destroyProfile: vi.fn(),
   getAnonymousId: vi.fn(() => 'anonymous-id'),
@@ -870,5 +873,56 @@ describe('cookieless mode', () => {
     expect(trackerSpies.pageView).not.toHaveBeenCalled()
     setTrackingConsent('cookieless')
     expect(trackerSpies.pageView).toHaveBeenCalled()
+  })
+})
+
+describe('consent teardown contract', () => {
+  it('purges the persisted event queue when leaving granted', async () => {
+    const { init, optOutTracking } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    transportSpies.purgeQueue.mockClear()
+
+    expect(optOutTracking()).toBe(true)
+    expect(transportSpies.purgeQueue).toHaveBeenCalled()
+  })
+
+  // The boolean exists so a withdrawal that did not fully land is detectable rather than
+  // console-only. Nothing asserted it, so a teardown that reported failure looked identical.
+  it('reports false when a queued-event purge does not land', async () => {
+    const { init, optOutTracking } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    transportSpies.purgeQueue.mockReturnValueOnce(false)
+
+    expect(optOutTracking()).toBe(false)
+  })
+
+  it('reset() reports whether the identity teardown landed', async () => {
+    const { init, reset } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    vi.mocked(clearProfile).mockReturnValueOnce(false)
+
+    // reset() is the logout path — the one place an integrator most needs to know a cross-subdomain
+    // identity cookie survived, since the next user of that browser inherits it.
+    expect(reset()).toBe(false)
+  })
+
+  // C->D was the one transition where isTracking() goes true->false FROM cookieless, so listeners
+  // must tear down. It shared code with G->D, but nothing exercised it.
+  it('cookieless -> denied tears listeners down', async () => {
+    const { init, setTrackingConsent } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'cookieless', autoCapture: true })
+    expect(trackerSpies.pageView).toHaveBeenCalled()
+
+    expect(setTrackingConsent('denied')).toBe(true)
+    expect(cleanupSpies.pageView).toHaveBeenCalled()
+  })
+
+  it('denied -> denied is idempotent and still reports success', async () => {
+    const { init, optOutTracking } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'denied', autoCapture: true })
+
+    expect(optOutTracking()).toBe(true)
+    expect(optOutTracking()).toBe(true)
+    expect(trackerSpies.pageView).not.toHaveBeenCalled()
   })
 })

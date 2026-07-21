@@ -1,6 +1,7 @@
 import { uuidv7 } from 'uuidv7'
 import { log } from './logger.js'
 import { type PersistentStore, resolveStore } from './persistence.js'
+import type { GrantedGate } from './tracking-consent.js'
 import { isStorageAvailable, makeStorageKey } from './utils.js'
 
 interface StoredState {
@@ -43,21 +44,28 @@ let lastHeartbeat = 0
 let lastPersistMs = 0
 let fallbackSessionId = ''
 let onPageHide: (() => void) | null = null
-// Retained so the registry can be re-armed when consent is granted mid-page, and so the
-// write paths below (rotate/resetIdentity) can consult consent, which became runtime-mutable
-// with setTrackingConsent(). Guarding only configureSession() would guard creation while
-// leaving every later write unguarded.
+// Retained so the registry can be re-armed when consent is granted mid-page, so clearSession()
+// can derive the registry key without this page having armed it, and so the deliberate write paths
+// below (rotate/resetIdentity) can consult consent, which became runtime-mutable with
+// setTrackingConsent(). Guarding only configureSession() would guard creation while leaving every
+// later write unguarded.
 let sessionProjectId = ''
-let isGrantedFn: (() => boolean) | null = null
+let isGrantedFn: GrantedGate | null = null
 
-/** Full consent is required before anything reaches the device. Absent getter = unguarded (tests, non-init callers). */
+/**
+ * Gates the *deliberate* device writes below — rotate(), resetIdentity() and the tab registry.
+ *
+ * Not every write: resolveSessionId()'s activity persist is ungated, and is safe only because
+ * track() branches on consent before ever calling it. Absent getter = unguarded (tests, non-init
+ * callers).
+ */
 const mayWriteToDevice = (): boolean => isGrantedFn?.() ?? true
 
 export const configureSession = (
   projectId: string,
   sessionConfig?: SessionConfig,
   persistentStore?: PersistentStore | null,
-  isGranted?: () => boolean,
+  isGranted?: GrantedGate,
 ): void => {
   store = resolveStore(persistentStore)
   if (!store) {
@@ -182,18 +190,26 @@ const releaseTabRegistry = ({ purge }: { purge: boolean }): boolean => {
   }
   let released = true
   try {
-    if (tabsStorage && tabsKey && tabId) {
-      if (purge) {
+    if (purge) {
+      // A purge is a device wipe, so it must NOT depend on this page having armed the registry.
+      // armTabRegistry() returns early whenever consent withholds it, leaving tabsStorage/tabsKey/
+      // tabId unset — and that is exactly the state a purge runs in. Keying the removal on those
+      // handles made it a silent no-op that still reported success, so a registry written by an
+      // earlier consented visit (whose tab was killed before pagehide could reap it) survived every
+      // later opt-out forever. Derive the key instead; only the entry-level path below needs tabId.
+      const storage = tabsStorage ?? (isStorageAvailable() ? localStorage : null)
+      const key = tabsKey || (sessionProjectId ? makeStorageKey(sessionProjectId, 'tabs') : '')
+      if (storage && key) {
+        storage.removeItem(key)
+        released = storage.getItem(key) === null
+      }
+    } else if (tabsStorage && tabsKey && tabId) {
+      const tabs: Record<string, number> = JSON.parse(tabsStorage.getItem(tabsKey) ?? '{}')
+      delete tabs[tabId]
+      if (Object.keys(tabs).length === 0) {
         tabsStorage.removeItem(tabsKey)
-        released = tabsStorage.getItem(tabsKey) === null
       } else {
-        const tabs: Record<string, number> = JSON.parse(tabsStorage.getItem(tabsKey) ?? '{}')
-        delete tabs[tabId]
-        if (Object.keys(tabs).length === 0) {
-          tabsStorage.removeItem(tabsKey)
-        } else {
-          tabsStorage.setItem(tabsKey, JSON.stringify(tabs))
-        }
+        tabsStorage.setItem(tabsKey, JSON.stringify(tabs))
       }
     }
   } catch (err) {

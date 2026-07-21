@@ -231,3 +231,69 @@ describe('cookieless queue routing', () => {
     expect(error).toHaveBeenCalledWith(expect.stringContaining('cannot be recovered'))
   })
 })
+
+describe('cookieless loss reporting and flush fairness', () => {
+  const cookielessEvt = (id: string): Event => create(EventSchema, { eventId: id, kind: 'k', cookieless: true })
+
+  // destroy() already splits these two levels; beaconFlush is the path that actually runs on every
+  // real navigation and reported both as "they remain queued for next flush". For the memory-only
+  // cookieless queue there is no next flush — it dies with the page, so the message said the
+  // opposite of what happened. beacon() returns false whenever sendBeacon is absent or blocked,
+  // which is routine with analytics-blocking extensions rather than exotic.
+  it('reports a failed page-hide beacon of cookieless events as permanent loss', async () => {
+    const errSpy = vi.spyOn(log, 'error').mockImplementation(() => {})
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    beacon.mockReturnValue(false)
+    const t = createBatchedTransport(ENDPOINT, KEY, freshProject(), { maxSize: 50, maxWaitMs: 60_000 })
+    await t.send(cookielessEvt('c1'))
+    await t.send(cookielessEvt('c2'))
+
+    // Scope the assertion to this dispatch alone: spies on the shared `log` object outlive a test
+    // unless restored, so an unscoped one also sees other transports' teardown output.
+    errSpy.mockClear()
+    warnSpy.mockClear()
+    window.dispatchEvent(new Event('pagehide'))
+
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('2 cookieless events'))
+    // The consented queue contributed nothing, so nothing should claim to be recoverable.
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('remain in the persisted queue'))
+    errSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
+  it('reports a failed page-hide beacon of consented events as recoverable', async () => {
+    const errSpy = vi.spyOn(log, 'error').mockImplementation(() => {})
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    beacon.mockReturnValue(false)
+    const t = createBatchedTransport(ENDPOINT, KEY, freshProject(), { maxSize: 50, maxWaitMs: 60_000 })
+    await t.send(evt('a'))
+
+    errSpy.mockClear()
+    warnSpy.mockClear()
+    window.dispatchEvent(new Event('pagehide'))
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('1 events'))
+    expect(errSpy).not.toHaveBeenCalledWith(expect.stringContaining('cookieless'))
+    errSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
+  // Routing cookieless events to their own queue narrowed the starvation but did not close it: the
+  // consented queue was drained first with the FULL maxSize budget, so `lock(maxSize - consented)`
+  // was lock(0) on every flush whenever the consented backlog was >= maxSize. Measured before the
+  // fix: 204 send attempts, none carrying a cookieless event.
+  it('does not starve cookieless events behind a maxSize consented backlog', async () => {
+    sendBatch.mockRejectedValue(new RpcError('down', GrpcCode.Unavailable))
+    const t = createBatchedTransport(ENDPOINT, KEY, freshProject(), { maxSize: 3, maxWaitMs: 500 })
+    for (const k of ['b0', 'b1', 'b2']) {
+      await t.send(evt(k))
+    }
+    await vi.advanceTimersByTimeAsync(3000)
+
+    await t.send(cookielessEvt('c0'))
+    await vi.advanceTimersByTimeAsync(5000)
+
+    const attempted = sendBatch.mock.calls.flatMap((c: unknown) => (c as [Event[]])[0].map(e => e.eventId || e.kind))
+    expect(attempted).toContain('c0')
+  })
+})

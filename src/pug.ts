@@ -30,14 +30,21 @@ import {
   resolveSessionId,
   type SessionConfig,
 } from './session.js'
-import { configureUrlSanitizer, type JsonValue, type TrackFn, type TrackOptions, toEvent } from './track.js'
+import {
+  configureUrlSanitizer,
+  type EventIdentity,
+  type JsonValue,
+  type TrackFn,
+  type TrackOptions,
+  toEvent,
+} from './track.js'
 import {
   createTrackingConsent,
   type TrackingConsent,
   type TrackingConsentConfig,
   type TrackingConsentController,
 } from './tracking-consent.js'
-import { DEFAULT_ENDPOINT, DEVICE_ID_KEY } from './utils.js'
+import { DEFAULT_ENDPOINT, DEVICE_ID_KEY, RESERVED_DISTINCT_ID_PREFIX } from './utils.js'
 
 export interface PugConfig {
   readonly endpoint: string
@@ -71,7 +78,7 @@ export interface InitOptions {
    *
    * **Off by default.** Cross-subdomain identity trades browser-enforced same-origin isolation for
    * the weaker same-site trust model, so it must be a conscious opt-in per integrator — see
-   * `docs/cross-domain-tracking-threat-model.md`.
+   * `docs/cross-domain-tracking-threat-model.md` in the backend `pug` repo.
    *
    * - `false` (default) — origin-scoped `localStorage` only; no shared cookie.
    * - `true` — discover the widest settable domain (eTLD+1) with a write-probe. Degrades to a
@@ -113,14 +120,18 @@ interface PugState {
 
 let state: PugState | null = null
 
-/**
- * Reserved by the server for the daily-rotating ids it derives for cookieless events, enforced by
- * the `batch.distinct_id_reserved_prefix` CEL rule over the whole BatchCreateRequest.
- */
-const RESERVED_DISTINCT_ID_PREFIX = 'cookieless-'
-
 // One-shot so a cookieless site calling identify() on every page doesn't spam the console.
 let cookielessIdentifyWarned = false
+
+/**
+ * Compile-time exhaustiveness marker. Reaching it with a non-`never` argument is a type error at the
+ * call site, so widening a union forces every dispatch over it to be revisited.
+ *
+ * Deliberately does NOT throw, unlike the usual `assertNever`: the call sites are inside `track()`,
+ * which must never throw (it runs from monkey-patched `history.pushState`). The runtime guard is the
+ * caller's own fail-closed branch; this only moves the diagnosis to compile time.
+ */
+const unreachable = (_state: never): void => {}
 
 export const init = (projectId: string, options: InitOptions) => {
   if (typeof window === 'undefined') {
@@ -154,7 +165,8 @@ export const init = (projectId: string, options: InitOptions) => {
   }
 
   // Create consent before configuring identity so the init-time expiry refresh in configureProfile
-  // is gated on it — no identity cookie write while consent is denied (threat-model constraint #6).
+  // is gated on it — no identity cookie write while consent is denied (constraint #6 of the
+  // cross-domain threat model, which lives in the backend `pug` repo).
   const trackingConsent = createTrackingConsent(projectId, options.trackingConsent, store)
 
   try {
@@ -211,7 +223,16 @@ export const init = (projectId: string, options: InitOptions) => {
   // the caller passed on this load — for an async CMP typically a placeholder 'denied' corrected by
   // a later optInTracking() — and purging on that would mint a new identity on every page load.
   if (!state.trackingConsent.isGranted() && state.trackingConsent.isAuthoritative()) {
-    purgePersistedIdentity()
+    // init() returns void, so this outcome has nowhere structured to go — but it must not be
+    // inferred from the individual per-key errors either. A purge that did not land means a later
+    // optInTracking() resolves the PRE-EXISTING identity, quietly falsifying the documented
+    // "granting later mints a fresh identity", while getTrackingConsent() reports the new state as
+    // though it fully applied. Name that consequence once, at the point it becomes true.
+    if (!purgePersistedIdentity()) {
+      log.error(
+        'Could not fully remove stored identity for a non-granted consent state. Identifiers may survive on this device, and granting consent later may resume the previous identity rather than minting a fresh one.',
+      )
+    }
   }
 
   state.autoCapture.setDesired(options.autoCapture)
@@ -244,6 +265,17 @@ export const setAutoCapture = (autoCapture: AutoCaptureConfig): void => {
  */
 const purgePersistedIdentity = (): boolean => {
   let purged = true
+  // The batch queue is identity storage too — every queued event carries sessionId and distinctId,
+  // and after identify() the distinctId is the externalId. It sends what was already collected under
+  // valid consent, then drops both queues from the device. Runs first, while those events still exist.
+  try {
+    if (state && !state.transport.purgeQueue()) {
+      purged = false
+    }
+  } catch (err) {
+    log.error('Failed to purge queued events:', err)
+    purged = false
+  }
   try {
     purged = clearProfile() && purged
   } catch (err) {
@@ -373,24 +405,39 @@ export const destroy = () => {
   state = null
 }
 
-export const reset = () => {
+export const reset = (): boolean => {
   if (typeof window === 'undefined') {
-    return
+    return false
   }
   if (!state) {
     log.warn('reset() called but SDK is not initialized.')
-    return
+    return false
   }
+  let ok = true
   try {
     resetIdentity()
   } catch (err) {
     log.error('Failed to reset identity:', err)
+    ok = false
+  }
+  // The queue holds the outgoing user's events, and after identify() their distinctId is that user's
+  // externalId — on a shared device the next person must not inherit them. purgeQueue() makes one
+  // best-effort send first, so events collected while they were signed in are not simply discarded.
+  try {
+    if (!state.transport.purgeQueue()) {
+      ok = false
+    }
+  } catch (err) {
+    log.error('Failed to purge queued events:', err)
+    ok = false
   }
   try {
-    clearProfile()
+    ok = clearProfile() && ok
   } catch (err) {
     log.error('Failed to clear profile:', err)
+    ok = false
   }
+  return ok
 }
 
 /**
@@ -492,20 +539,35 @@ export const track: TrackFn = (kind: string, props?: Record<string, unknown>, op
     }
 
     const consent = state.trackingConsent.getConsent()
-    if (consent === 'denied') {
+
+    // Allow-list, not a deny-check. Written as `if (consent === 'denied') return` plus a binary
+    // ternary, every state that was not explicitly handled fell through to the full-identity arm —
+    // so a fourth state added later meaning "more restrictive than granted" would silently get full
+    // tracking *and* a persisted session, deviceId and anonymous ID, with neither the compiler nor
+    // the suite objecting. Here an unhandled state resolves to null and the event drops, and
+    // `unreachable` makes widening TrackingConsent a compile error at this dispatch — the one place
+    // that has to make the decision.
+    //
+    // Cookieless: the server derives identity. That arm never touches the identity modules, so their
+    // lazy-create/refresh paths cannot write anything — scoped to track() deliberately, since init()
+    // and setTrackingConsent() do reach them (to restore into memory and to purge).
+    let identity: EventIdentity | null = null
+    if (consent === 'granted') {
+      identity = { sessionId: resolveSessionId(), distinctId: resolveDistinctId() }
+    } else if (consent === 'cookieless') {
+      identity = { cookieless: true }
+    } else if (consent === 'denied') {
       log.debug(`track("${kind}") dropped because tracking consent is denied.`)
+    } else {
+      unreachable(consent)
+      log.error(`track("${kind}") dropped: unhandled tracking consent state ${JSON.stringify(consent)}.`)
+    }
+    if (!identity) {
       return
     }
 
     log.debug(`track("${kind}")`)
     const immediate = opts?.immediate ?? false
-    // Cookieless: the server derives identity. This path never touches the identity modules, so
-    // their lazy-create/refresh paths cannot write anything — scoped to track() deliberately, since
-    // init() and setTrackingConsent() do reach them (to restore into memory and to purge).
-    const identity =
-      consent === 'cookieless'
-        ? ({ cookieless: true } as const)
-        : { sessionId: resolveSessionId(), distinctId: resolveDistinctId() }
     const event = toEvent(state.config.projectId, kind, identity, props, opts)
     if (!event) {
       // error already logged by toEvent

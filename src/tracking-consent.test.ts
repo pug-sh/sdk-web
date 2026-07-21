@@ -340,3 +340,30 @@ describe('cross-subdomain consent propagation (real cookie layer)', () => {
     expect(www.getConsent()).toBe('denied')
   })
 })
+
+// `persist` is read as `normalized.persist === true`, so any non-boolean silently becomes false.
+// The CDN one-tag install feeds this from `data-options` JSON, where `"persist": "true"` is an easy
+// mistake — and it fails in the quietest possible way: consent lives in memory only, init()'s purge
+// never fires (isAuthoritative() is false), and setTrackingConsent() still returns true because
+// write() short-circuits on !persist. Every other untrusted field in this file is validated.
+describe('persist coercion', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('warns when persist is present but not a boolean', async () => {
+    const { createTrackingConsent } = await import('./tracking-consent.js')
+    createTrackingConsent('proj-persist-str', { default: 'denied', persist: 'true' as never })
+
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('persist'))
+  })
+
+  it('stays silent when persist is a real boolean or absent', async () => {
+    const { createTrackingConsent } = await import('./tracking-consent.js')
+    createTrackingConsent('proj-persist-ok', { default: 'denied', persist: false })
+    createTrackingConsent('proj-persist-absent', { default: 'denied' })
+
+    expect(logSpies.warn).not.toHaveBeenCalledWith(expect.stringContaining('persist'))
+  })
+})

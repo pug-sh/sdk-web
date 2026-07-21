@@ -259,3 +259,42 @@ describe('cross-subdomain identity', () => {
     expect(profile.getAnonymousId().startsWith('anon-')).toBe(true)
   })
 })
+
+// identify() rejects a `cookieless-` externalId, but the restore path had no such check — so a
+// device poisoned by a pre-check SDK version (or by a sibling subdomain still running one, via the
+// shared cookie) kept sending it as distinctId forever. The server's message-level CEL rule then
+// rejects the WHOLE batch as InvalidArgument, which the batch layer classifies permanent, so every
+// batch containing that user is committed and dropped. Upgrading did not heal the device.
+//
+// getAnonymousId() twenty lines away already validates its own `anon-` prefix and regenerates on
+// mismatch; this is the same posture for the other restored identifier.
+describe('poisoned externalId restore', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('discards a restored externalId carrying the reserved cookieless- prefix', async () => {
+    localStorage.setItem(EXTERNAL_ID_KEY, 'cookieless-20260721-abc')
+    vi.resetModules()
+    const profile = await import('./profile.js')
+    profile.configureProfile(PROJECT_ID)
+
+    expect(profile.isIdentified()).toBe(false)
+    expect(profile.resolveDistinctId()).toMatch(/^anon-/)
+    // Removed, not merely ignored: leaving it means the next SDK version that drops the check
+    // resurrects it, and the device stays poisoned across upgrades.
+    expect(localStorage.getItem(EXTERNAL_ID_KEY)).toBeNull()
+    expect(logSpies.warn).toHaveBeenCalled()
+  })
+
+  it('still restores a legitimate externalId', async () => {
+    localStorage.setItem(EXTERNAL_ID_KEY, 'user@example.com')
+    vi.resetModules()
+    const profile = await import('./profile.js')
+    profile.configureProfile(PROJECT_ID)
+
+    expect(profile.isIdentified()).toBe(true)
+    expect(profile.resolveDistinctId()).toBe('user@example.com')
+  })
+})

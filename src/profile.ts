@@ -1,7 +1,8 @@
 import { uuidv7 } from 'uuidv7'
 import { log } from './logger.js'
 import { type PersistentStore, resolveStore } from './persistence.js'
-import { makeStorageKey } from './utils.js'
+import type { GrantedGate } from './tracking-consent.js'
+import { makeStorageKey, RESERVED_DISTINCT_ID_PREFIX } from './utils.js'
 
 let storageKey = ''
 let externalIdKey = ''
@@ -12,7 +13,7 @@ let store: PersistentStore | null = null
 export const configureProfile = (
   projectId: string,
   persistentStore?: PersistentStore | null,
-  isGranted?: () => boolean,
+  isGranted?: GrantedGate,
 ): void => {
   store = resolveStore(persistentStore)
   if (!store) {
@@ -28,9 +29,23 @@ export const configureProfile = (
   // has not consented. When no getter is passed (non-init callers, tests) the refresh is unchanged.
   const stored = store?.getItem(externalIdKey)
   if (stored) {
-    externalId = stored
-    if (isGranted?.() ?? true) {
-      store?.setItem(externalIdKey, stored)
+    // The reserved prefix belongs to the server's derived cookieless identities. identify() rejects
+    // it as input, but that check cannot help a device already carrying one — written by an SDK
+    // version predating it, or by a sibling subdomain still running one via the shared cookie.
+    // Restoring it makes it the distinctId on every later event, and the server's message-level CEL
+    // rule then rejects the ENTIRE batch as InvalidArgument, which the batch layer classifies
+    // permanent — so every batch containing this user is committed and dropped, silently.
+    // Removed rather than ignored, so the device is healed instead of merely tolerated.
+    if (stored.startsWith(RESERVED_DISTINCT_ID_PREFIX)) {
+      log.warn(
+        `Stored external ID uses the reserved "${RESERVED_DISTINCT_ID_PREFIX}" prefix, discarding it. The user will be treated as anonymous until identify() is called again.`,
+      )
+      store?.removeItem(externalIdKey)
+    } else {
+      externalId = stored
+      if (isGranted?.() ?? true) {
+        store?.setItem(externalIdKey, stored)
+      }
     }
   }
 }

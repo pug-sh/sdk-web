@@ -44,6 +44,13 @@ const createMemoryQueueStorage = (maxQueueSize: number) => {
     peekUnlocked: () => buffer.slice(locked),
     rollback: () => (locked = 0),
     dispose: () => {},
+    // Consent teardown. Nothing to confirm — this queue never reaches the device — but it shares the
+    // shape so callers can purge both without asking which is which.
+    purge: () => {
+      buffer.length = 0
+      locked = 0
+      return true
+    },
     get size() {
       return buffer.length - locked
     },
@@ -148,6 +155,28 @@ const createLocalStorageQueueStorage = (key: string, maxQueueSize: number) => {
       }
       persist()
     },
+    /**
+     * Consent teardown: drop every queued event and remove the key from the device.
+     *
+     * Cancels the pending debounce first — otherwise a persist scheduled before the withdrawal
+     * fires afterwards and rewrites the very payloads this just removed. Returns false when the key
+     * is still readable, so a withdrawal that did not fully land is detectable rather than assumed.
+     */
+    purge: () => {
+      if (persistTimer !== null) {
+        clearTimeout(persistTimer)
+        persistTimer = null
+      }
+      buffer = []
+      locked = 0
+      try {
+        localStorage.removeItem(key)
+        return localStorage.getItem(key) === null
+      } catch (err) {
+        log.warn('Failed to remove the persisted event queue:', err)
+        return false
+      }
+    },
     get size() {
       return buffer.length - locked
     },
@@ -236,14 +265,50 @@ export const createBatchedTransport = (
   const storage = createDefaultQueueStorage(storageKey, maxQueueSize)
   // Cookieless events must never touch the device: they bypass the
   // localStorage-backed queue for a memory-only twin. Cost, accepted: a
-  // hard-killed tab loses up to maxWaitMs of cookieless events (the beacon
-  // covers ordinary navigation) — the alternative is persisting event
-  // payloads, which is the thing cookieless mode promises not to do.
+  // hard-killed tab loses whatever this queue is holding (the beacon covers
+  // ordinary navigation) — the alternative is persisting event payloads,
+  // which is the thing cookieless mode promises not to do.
+  //
+  // That loss is bounded by maxQueueSize, NOT by maxWaitMs. maxWaitMs bounds
+  // only the happy path: a transient send failure rolls the batch back here
+  // and retries indefinitely, so events can sit for far longer — measured at
+  // 60s with maxWaitMs=50 (1200x) across 1201 attempts, still deliverable
+  // when sends recovered.
   const cookielessStorage = createMemoryQueueStorage(maxQueueSize)
   const storageFor = (event: Event) => (event.cookieless ? cookielessStorage : storage)
   const totalSize = () => storage.size + cookielessStorage.size
   let timer: ReturnType<typeof setTimeout> | null = null
   let state: TransportState = 'idle'
+
+  /**
+   * Reports a failed `sendBeacon` at the level each queue's outcome actually warrants.
+   *
+   * `beacon()` returns false whenever `sendBeacon` is absent or blocked — routine with
+   * analytics-blocking extensions, not exotic. The consented queue is localStorage-backed and
+   * recovers on the next `init()`; the cookieless queue is memory-only and dies with the page, so
+   * its loss is permanent. Reporting both as "they remain queued" told the reader the opposite of
+   * what happened to half of them.
+   */
+  const reportBeaconLoss = (consentedCount: number, cookielessCount: number, phase: string): void => {
+    if (consentedCount > 0) {
+      // Only recoverable if there is somewhere to recover from: createDefaultQueueStorage falls back
+      // to an in-memory queue when localStorage is unavailable, where this loss is permanent too.
+      if (isStorageAvailable()) {
+        log.warn(
+          `sendBeacon failed ${phase}; ${consentedCount} events remain in the persisted queue and will retry on next init().`,
+        )
+      } else {
+        log.error(
+          `sendBeacon failed ${phase}; ${consentedCount} events were dropped — localStorage is unavailable, so the queue cannot be recovered.`,
+        )
+      }
+    }
+    if (cookielessCount > 0) {
+      log.error(
+        `sendBeacon failed ${phase}; ${cookielessCount} cookieless events were dropped — the cookieless queue is memory-only and cannot be recovered.`,
+      )
+    }
+  }
 
   const clearTimer = () => {
     if (timer !== null) {
@@ -275,7 +340,16 @@ export const createBatchedTransport = (
     // consented queue from batched sends to one request per event. Worse, `storage` is
     // localStorage-backed, so a single transiently-failing consented event survives page loads and
     // could block cookieless collection on that device indefinitely.
-    const consented = storage.lock(maxSize)
+    // Reserve part of the budget for the cookieless queue whenever it has anything waiting. Draining
+    // the consented queue first with the WHOLE budget left `lock(maxSize - consented.length)` equal
+    // to lock(0) on every flush once the consented backlog reached maxSize — so a backlog that kept
+    // failing transiently (offline user, endpoint down) starved cookieless collection outright:
+    // measured at 204 send attempts, none carrying a cookieless event. Routing the two queues
+    // separately narrowed the original bug; this closes it.
+    const cookielessPending = cookielessStorage.size
+    const consentedBudget =
+      cookielessPending > 0 ? Math.max(1, maxSize - Math.min(cookielessPending, Math.ceil(maxSize / 2))) : maxSize
+    const consented = storage.lock(consentedBudget)
     const cookieless = cookielessStorage.lock(maxSize - consented.length)
     const batch = [...consented, ...cookieless]
     if (batch.length === 0) {
@@ -330,9 +404,13 @@ export const createBatchedTransport = (
       // In-flight flush owns the locked events. Best-effort beacon the
       // unlocked tail from both queues — they stay queued regardless, so
       // duplicates are possible if the page survives but events aren't lost.
-      const unlocked = [...storage.peekUnlocked(), ...cookielessStorage.peekUnlocked()]
-      if (unlocked.length > 0) {
-        inner.beacon?.(unlocked)
+      const consentedTail = storage.peekUnlocked()
+      const cookielessTail = cookielessStorage.peekUnlocked()
+      const unlocked = [...consentedTail, ...cookielessTail]
+      // The return value was discarded here, so a blocked sendBeacon lost the cookieless tail with
+      // no diagnostic at all — the one branch that said nothing about the one loss that is permanent.
+      if (unlocked.length > 0 && !inner.beacon?.(unlocked)) {
+        reportBeaconLoss(consentedTail.length, cookielessTail.length, 'on page hide')
       }
       return
     }
@@ -362,7 +440,7 @@ export const createBatchedTransport = (
       if (b.length > 0) {
         cookielessStorage.rollback()
       }
-      log.warn(`sendBeacon failed for ${batch.length} events; they remain queued for next flush.`)
+      reportBeaconLoss(a.length, b.length, 'on page hide')
     }
   }
 
@@ -402,6 +480,35 @@ export const createBatchedTransport = (
       }
     },
 
+    /**
+     * Consent withdrawal: make one best-effort send of what was already collected, then drop both
+     * queues from the device. Returns false when the persisted key survived the removal.
+     *
+     * Queued events carry `sessionId` and `distinctId` as top-level fields, and after `identify()`
+     * the `distinctId` IS the `externalId` — so the queue is identity storage in every sense the
+     * profile and session keys are, and it was the one such store the consent teardown never
+     * reached. Leaving it meant a withdrawal that returned `true` while identified payloads stayed
+     * on disk, to be beaconed on the next navigation and again on the following visit.
+     *
+     * The send is `beacon`, not `flush`: withdrawal is a synchronous user action that must not wait
+     * on the network, and the events must be gone from the device when this returns either way.
+     * Withdrawal is forward-looking — data collected under valid consent stays lawful to process —
+     * so dropping these unsent would lose events the user had agreed to at collection time.
+     *
+     * `peekUnlocked()` excludes any in-flight batch, which its own flush is already delivering; that
+     * flush's later commit/rollback lands on an emptied buffer and is a harmless no-op.
+     */
+    purgeQueue: (): boolean => {
+      if (state !== 'destroyed') {
+        const pending = [...storage.peekUnlocked(), ...cookielessStorage.peekUnlocked()]
+        if (pending.length > 0) {
+          inner.beacon?.(pending)
+        }
+      }
+      const consentedPurged = storage.purge()
+      const cookielessPurged = cookielessStorage.purge()
+      return consentedPurged && cookielessPurged
+    },
     destroy: () => {
       state = 'destroyed'
       clearTimer()
@@ -440,23 +547,7 @@ export const createBatchedTransport = (
           if (b.length > 0) {
             cookielessStorage.rollback()
           }
-          // beacon() returns false whenever sendBeacon is absent or blocked, not only on payload
-          // rejection — a routine path, and the only one where loss is permanent. The consented
-          // queue is localStorage-backed and recovers on the next init(); the cookieless queue is
-          // memory-only and dies with this transport, so its events are gone. Reporting them at
-          // different levels keeps the recoverable case from reading as data loss and vice versa.
-          const consentedCount = a.length + consentedTail.length
-          const cookielessCount = b.length + cookielessTail.length
-          if (consentedCount > 0) {
-            log.warn(
-              `sendBeacon failed during destroy(); ${consentedCount} events remain in the persisted queue and will retry on next init().`,
-            )
-          }
-          if (cookielessCount > 0) {
-            log.error(
-              `sendBeacon failed during destroy(); ${cookielessCount} cookieless events were dropped — the cookieless queue is memory-only and cannot be recovered.`,
-            )
-          }
+          reportBeaconLoss(a.length + consentedTail.length, b.length + cookielessTail.length, 'during destroy()')
         }
       }
     },

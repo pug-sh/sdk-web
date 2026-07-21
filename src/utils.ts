@@ -1,5 +1,14 @@
 export const DEVICE_ID_KEY = 'pug_device_id'
 
+/**
+ * Reserved by the server for the daily-rotating ids it derives for cookieless events, enforced by
+ * the `batch.distinct_id_reserved_prefix` CEL rule over the whole BatchCreateRequest.
+ *
+ * Shared by `identify()` (which rejects it as input) and `configureProfile()` (which rejects it on
+ * restore): a device poisoned before the input check existed would otherwise keep replaying it.
+ */
+export const RESERVED_DISTINCT_ID_PREFIX = 'cookieless-'
+
 /** Default backend base URL used when `init()` is called without an explicit `endpoint`. */
 export const DEFAULT_ENDPOINT = 'https://api.pugs.dev'
 

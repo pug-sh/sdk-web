@@ -1,4 +1,9 @@
+/**
+ * @vitest-environment jsdom
+ * @vitest-environment-options { "url": "https://app.example.test/" }
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { GrpcCode, RpcError } from './rpc.js'
 import { makeStorageKey } from './utils.js'
 
 // Only the wire is mocked — everything between track() and the transport
@@ -11,7 +16,7 @@ const { sendBatch, send, beacon } = vi.hoisted(() => ({
 }))
 vi.mock('./transport.js', () => ({ createTransport: () => ({ send, sendBatch, beacon }) }))
 
-const { init, track, destroy, setTrackingConsent } = await import('./pug.js')
+const { init, track, destroy, setTrackingConsent, optOutTracking } = await import('./pug.js')
 
 /**
  * The write/remove sentinel isStorageAvailable() uses to probe localStorage. It is a capability
@@ -39,6 +44,25 @@ const recordDeviceWrites = () => {
   const removals: string[] = []
   const realSet = localStorage.setItem.bind(localStorage)
   const realRemove = localStorage.removeItem.bind(localStorage)
+
+  // Cookies need the same treatment as localStorage, and for the same reason the comment above
+  // gives: `expect(document.cookie).toBe('')` is an END-STATE check, so a write followed by a
+  // delete passes it. Every cookie the layer writes goes through a `doc.cookie = ...` assignment,
+  // so intercepting the setter records them as they happen. Deletions (max-age=0) and the layer's
+  // own transient capability probes are excluded by shape and by name, exactly as PROBE_KEY is.
+  const cookieDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie')
+  if (cookieDesc?.get && cookieDesc.set) {
+    const { get, set } = cookieDesc
+    vi.spyOn(document, 'cookie', 'set').mockImplementation((value: string) => {
+      const name = String(value).split('=')[0].trim()
+      const isDeletion = /max-age=0|expires=Thu, 01 Jan 1970/i.test(value)
+      if (!isDeletion && !name.startsWith('__pug_probe_')) {
+        writes.push(`cookie:${name}`)
+      }
+      set.call(document, value)
+    })
+    vi.spyOn(document, 'cookie', 'get').mockImplementation(() => get.call(document) as string)
+  }
   vi.spyOn(localStorage, 'setItem').mockImplementation((key: string, value: string) => {
     if (key !== PROBE_KEY) {
       writes.push(key)
@@ -64,6 +88,10 @@ afterEach(() => {
   vi.useRealTimers()
   destroy()
   vi.restoreAllMocks()
+  // clearAllMocks() resets recorded calls but NOT implementations, so a mockRejectedValue set by one
+  // test would silently follow every later one. Put the wire back to its default explicitly.
+  sendBatch.mockResolvedValue({ accepted: 1 })
+  beacon.mockReturnValue(true)
   localStorage.clear()
   for (const c of document.cookie.split(';')) {
     document.cookie = `${c.split('=')[0].trim()}=; max-age=0; path=/`
@@ -186,6 +214,33 @@ describe('cookieless storage silence', () => {
 
     expect(localStorage.getItem(makeStorageKey(p, 'session'))).toBeNull()
     expect(localStorage.getItem(makeStorageKey(p, 'profile'))).toBeNull()
+    // Weak on its own: destroy() above already dropped this key via the purge:false path, so this
+    // passes whether or not the purge touches the registry. The two cases below are the real guard.
+    expect(localStorage.getItem(makeStorageKey(p, 'tabs'))).toBeNull()
+  })
+
+  // The purge must not depend on THIS page having armed the registry. When consent resolves
+  // non-granted at init(), armTabRegistry() returns before setting tabsStorage/tabsKey/tabId — so a
+  // purge keyed on those handles silently does nothing in exactly the state that runs the purge,
+  // and reports success. A prior tab killed without pagehide leaves the key behind for this to find.
+  it('purges a tab registry this page never armed', () => {
+    const p = 'proj-stale-tabs'
+    localStorage.setItem(makeStorageKey(p, 'consent'), 'denied')
+    localStorage.setItem(makeStorageKey(p, 'profile'), 'anon-0190abc')
+    localStorage.setItem(makeStorageKey(p, 'tabs'), JSON.stringify({ deadtab: Date.now() }))
+
+    init(p, { apiKey: 'k', trackingConsent: { default: 'granted', persist: true } })
+
+    expect(localStorage.getItem(makeStorageKey(p, 'profile'))).toBeNull()
+    expect(localStorage.getItem(makeStorageKey(p, 'tabs'))).toBeNull()
+  })
+
+  it('purges an unarmed tab registry through a runtime transition too', () => {
+    const p = 'proj-stale-tabs-runtime'
+    localStorage.setItem(makeStorageKey(p, 'tabs'), JSON.stringify({ deadtab: Date.now() }))
+    init(p, { apiKey: 'k', trackingConsent: 'cookieless' })
+
+    expect(optOutTracking()).toBe(true)
     expect(localStorage.getItem(makeStorageKey(p, 'tabs'))).toBeNull()
   })
 
@@ -209,6 +264,79 @@ describe('cookieless storage silence', () => {
     init(p, { apiKey: 'k', trackingConsent: { default: 'denied', persist: true } })
 
     expect(localStorage.getItem(makeStorageKey(p, 'profile'))).toBe(profile)
+  })
+
+  // The batch queue is device storage too, and it serializes sessionId + distinctId on every event
+  // — after identify(), distinctId IS the externalId. It was never wired into the consent teardown,
+  // so a withdrawal left identified payloads on the device and beaconed them on a later visit.
+  //
+  // Buffering requires a transiently-failing send: on the happy path the queue drains and removes
+  // its own key, which is exactly why the assertions elsewhere in this file could not see the gap.
+  // Rejection must be sustained, not once: after a rollback the state machine immediately reschedules,
+  // so a single failure is retried and drains on the next attempt, taking the queue key with it.
+  const bufferOneConsentedEvent = async (p: string) => {
+    sendBatch.mockRejectedValue(new RpcError('down', GrpcCode.Unavailable))
+    init(p, { apiKey: 'k', trackingConsent: 'granted', autoCapture: false, batch: { maxWaitMs: 100 } })
+    track('purchase', { amount: 42 })
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(localStorage.getItem(makeStorageKey(p, 'queue'))).not.toBeNull()
+  }
+
+  it('opting out purges the persisted event queue', async () => {
+    vi.useFakeTimers()
+    const p = 'proj-queue-optout'
+    await bufferOneConsentedEvent(p)
+
+    expect(optOutTracking()).toBe(true)
+    expect(localStorage.getItem(makeStorageKey(p, 'queue'))).toBeNull()
+  })
+
+  it('entering cookieless purges the persisted event queue', async () => {
+    vi.useFakeTimers()
+    const p = 'proj-queue-cookieless'
+    await bufferOneConsentedEvent(p)
+
+    expect(setTrackingConsent('cookieless')).toBe(true)
+    expect(storedKeys()).toEqual([])
+  })
+
+  // Withdrawal is forward-looking: events already collected under valid consent get one best-effort
+  // send on the way out. What must not happen is them staying on the device.
+  it('makes a final send attempt for events collected while consent was valid', async () => {
+    vi.useFakeTimers()
+    const p = 'proj-queue-flush'
+    await bufferOneConsentedEvent(p)
+    beacon.mockClear()
+    sendBatch.mockClear()
+
+    optOutTracking()
+
+    const delivered = [...beacon.mock.calls, ...sendBatch.mock.calls].flatMap(
+      call => (call as unknown as [unknown[]])[0] ?? [],
+    )
+    expect(delivered).toHaveLength(1)
+    expect((delivered[0] as { kind: string }).kind).toBe('purchase')
+  })
+
+  // The leak had a second act: a later page load hydrated the surviving queue and beaconed it on
+  // the first navigation, while getTrackingConsent() reported 'denied'.
+  it('does not resurrect a queue on a later load that starts denied', async () => {
+    vi.useFakeTimers()
+    const p = 'proj-queue-reload'
+    await bufferOneConsentedEvent(p)
+    optOutTracking()
+    // A failing beacon keeps destroy() from draining the queue itself — otherwise this passes
+    // whether or not the purge ran, which is the same vacuity that hid the bug.
+    beacon.mockReturnValue(false)
+    destroy()
+    beacon.mockReturnValue(true)
+    beacon.mockClear()
+
+    init(p, { apiKey: 'k', trackingConsent: { default: 'denied', persist: true }, autoCapture: false })
+    window.dispatchEvent(new Event('pagehide'))
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(beacon.mock.calls.flatMap(c => (c as unknown as [unknown[]])[0] ?? [])).toEqual([])
   })
 
   it('the same flow under granted consent does persist identity (control)', async () => {
