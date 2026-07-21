@@ -35,7 +35,7 @@
   "scripts": {
     "prebuild": "echo \"export const SDK_VERSION = '$(node -p \"require('./package.json').version\")'\" > src/version.ts",
     "build": "tsc && node scripts/build-cdn.mjs",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "make check-proto-pin && npm run build",
     "watch": "tsc -w",
     "dev": "tsc -w & serve . & sleep 1 && open http://localhost:3000 && wait",
     "serve": "serve . & sleep 1 && open http://localhost:3000 && wait",

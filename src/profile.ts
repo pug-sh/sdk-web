@@ -71,19 +71,29 @@ export const resolveDistinctId = (): string => {
   return externalId || getAnonymousId()
 }
 
-export const clearProfile = (): void => {
+/**
+ * Drops the persisted anonymous and external IDs. Returns false when a removal could not be
+ * confirmed — in cross-subdomain mode that means the shared identity cookie survived on the
+ * registrable domain and will resurface on the next read, which callers acting on a consent
+ * withdrawal must be able to detect rather than infer from console output.
+ */
+export const clearProfile = (): boolean => {
+  let cleared = true
   // reset()/opt-out teardown: a failed removal in cross-subdomain mode means the shared identity
   // cookie survived and would resurface on the next read, so surface it at error level.
   if (store) {
     if (!store.removeItem(storageKey)) {
       log.error('Failed to clear the anonymous profile from storage — it may resurface on the next page load.')
+      cleared = false
     }
     if (!store.removeItem(externalIdKey)) {
       log.error('Failed to clear the external ID from storage — it may resurface on the next page load.')
+      cleared = false
     }
   }
   anonymousId = ''
   externalId = ''
+  return cleared
 }
 
 export const destroyProfile = (): void => {

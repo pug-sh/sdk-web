@@ -814,12 +814,36 @@ describe('cookieless mode', () => {
     expect(trackerSpies.pageView).toHaveBeenCalled()
   })
 
-  it('identify() drops at debug level in cookieless mode', async () => {
+  // Warn, not debug: isTrackingEnabled() returns true in cookieless mode, so the pre-flight check
+  // integrators were told to use takes the branch and identifies nobody. A debug-gated message is
+  // invisible to precisely the person debugging that.
+  it('identify() warns once and drops in cookieless mode', async () => {
     const { init, identify } = await importPug()
     init('proj', { apiKey: 'k', trackingConsent: 'cookieless' })
     await identify('user@example.com')
+    await identify('another@example.com')
     expect(unaryCallSpy).not.toHaveBeenCalled()
-    expect(logSpies.debug).toHaveBeenCalledWith(expect.stringContaining('cookieless'))
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('cookieless mode'))
+    expect(logSpies.warn.mock.calls.filter(c => String(c[0]).includes('cookieless mode'))).toHaveLength(1)
+  })
+
+  it('identify() drops at debug level when consent is denied', async () => {
+    const { init, identify } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'denied' })
+    await identify('user@example.com')
+    expect(unaryCallSpy).not.toHaveBeenCalled()
+    expect(logSpies.debug).toHaveBeenCalledWith(expect.stringContaining('denied'))
+  })
+
+  // The server reserves this prefix for cookieless identities and rejects the ENTIRE batch
+  // containing an offending distinct_id, so one bad identify() poisons every later batch for
+  // that user with no signal pointing back at the cause.
+  it('identify() rejects an externalId using the reserved cookieless- prefix', async () => {
+    const { init, identify } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    await identify('cookieless-42')
+    expect(unaryCallSpy).not.toHaveBeenCalled()
+    expect(logSpies.error).toHaveBeenCalledWith(expect.stringContaining('reserved'))
   })
 
   it('setTrackingConsent granted->cookieless purges identity; ->granted mints nothing eagerly', async () => {

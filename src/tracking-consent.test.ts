@@ -107,12 +107,51 @@ describe('createTrackingConsent', () => {
     expect(consent.getConsent()).toBe('cookieless')
   })
 
-  it('rejects an invalid state passed to set() and keeps the current state', async () => {
+  // Keeping the previous state here was a fail-OPEN: a CMP whose vocabulary is 'reject'/'opt-out',
+  // or that passes null before the user answers, left a 'granted' user fully tracked while
+  // isTrackingEnabled() confirmed the wrong state. init() already fails closed on the same untrusted
+  // input, so runtime input now matches it.
+  it.each([
+    'Cookieless',
+    'reject',
+    'opt-out',
+    'cookie-less',
+    'cookieless ',
+    false,
+    null,
+    undefined,
+  ])('fails closed to denied and reports failure for the invalid state %p', async invalid => {
     const createTrackingConsent = await loadFactory()
     const consent = createTrackingConsent('proj', 'granted')
-    consent.set('Cookieless' as never)
-    expect(consent.getConsent()).toBe('granted')
-    expect(logSpies.warn).toHaveBeenCalled()
+    expect(consent.set(invalid as never)).toBe(false)
+    expect(consent.getConsent()).toBe('denied')
+    expect(consent.isTracking()).toBe(false)
+    expect(logSpies.error).toHaveBeenCalled()
+  })
+
+  it('reports success for a valid transition', async () => {
+    const createTrackingConsent = await loadFactory()
+    const consent = createTrackingConsent('proj', 'granted')
+    expect(consent.set('cookieless')).toBe(true)
+    expect(consent.optOut()).toBe(true)
+    expect(consent.optIn()).toBe(true)
+  })
+
+  // I8: a persist that does not land leaves the opt-out in memory only, so the next page load falls
+  // back to the seed and silently re-consents the user. The caller has to be able to see that.
+  it('reports failure when persistence was requested but is unavailable', async () => {
+    const createTrackingConsent = await loadFactory()
+    vi.mocked(isStorageAvailable).mockReturnValue(false)
+    const consent = createTrackingConsent('proj', { default: 'granted', persist: true })
+    expect(consent.optOut()).toBe(false)
+    expect(consent.getConsent()).toBe('denied')
+  })
+
+  it('reports success when persistence was never requested', async () => {
+    const createTrackingConsent = await loadFactory()
+    vi.mocked(isStorageAvailable).mockReturnValue(false)
+    const consent = createTrackingConsent('proj', { default: 'granted' })
+    expect(consent.optOut()).toBe(true)
   })
 
   it('does not touch storage when persist is false', async () => {
@@ -214,6 +253,19 @@ describe('createTrackingConsent with a provided store', () => {
     expect(store.map.get(KEY)).toBe('denied')
     consent.optIn()
     expect(store.map.get(KEY)).toBe('granted')
+  })
+
+  // The I8 case that actually bites in production: the store is present and accepts the call but
+  // reports the value will not survive (cross-subdomain cookie rejected, quota, the 3800-char cap).
+  it('reports failure when the provided store cannot persist the choice', async () => {
+    const createTrackingConsent = await loadFactory()
+    const store = { ...createFakeStore(), setItem: () => false }
+    const consent = createTrackingConsent('proj', { persist: true }, store)
+    expect(consent.optOut()).toBe(false)
+    expect(consent.getConsent()).toBe('denied')
+    expect(logSpies.error).toHaveBeenCalledWith(
+      'Failed to persist tracking consent to storage — opt in/out will not survive page reload.',
+    )
   })
 
   it('restores consent from the provided store and refreshes it', async () => {

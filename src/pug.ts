@@ -25,6 +25,7 @@ import {
   clearSession,
   configureSession,
   destroySession,
+  onConsentGranted,
   resetIdentity,
   resolveSessionId,
   type SessionConfig,
@@ -112,6 +113,15 @@ interface PugState {
 
 let state: PugState | null = null
 
+/**
+ * Reserved by the server for the daily-rotating ids it derives for cookieless events, enforced by
+ * the `batch.distinct_id_reserved_prefix` CEL rule over the whole BatchCreateRequest.
+ */
+const RESERVED_DISTINCT_ID_PREFIX = 'cookieless-'
+
+// One-shot so a cookieless site calling identify() on every page doesn't spam the console.
+let cookielessIdentifyWarned = false
+
 export const init = (projectId: string, options: InitOptions) => {
   if (typeof window === 'undefined') {
     log.warn('init() called in a non-browser environment, skipping.')
@@ -191,6 +201,19 @@ export const init = (projectId: string, options: InitOptions) => {
     log.debug('Cookieless mode: events flow without stored identity; identify() is disabled until consent is granted.')
   }
 
+  // Entering a non-granted state via config must leave the device in the same condition as entering
+  // it via setTrackingConsent(), or a visitor whose CMP now says "reject" keeps a prior consented
+  // visit's 365-day identifiers — and the documented "granting later mints a fresh identity" breaks,
+  // since a later grant would resolve the *pre-existing* session and anonymous ID.
+  //
+  // Gated on isAuthoritative() so this only fires when consent is persisted and the resolved state
+  // is therefore the user's own recorded choice. Without persistence the initial value is whatever
+  // the caller passed on this load — for an async CMP typically a placeholder 'denied' corrected by
+  // a later optInTracking() — and purging on that would mint a new identity on every page load.
+  if (!state.trackingConsent.isGranted() && state.trackingConsent.isAuthoritative()) {
+    purgePersistedIdentity()
+  }
+
   state.autoCapture.setDesired(options.autoCapture)
 
   log.debug('Initialized.')
@@ -202,43 +225,89 @@ export const setAutoCapture = (autoCapture: AutoCaptureConfig): void => {
     return
   }
   state.autoCapture.setDesired(autoCapture)
-  if (!state.trackingConsent.isGranted()) {
+  // isTracking, not isGranted: the controller attaches listeners whenever events flow, which
+  // includes cookieless. Keying this on full consent printed "activate after opt-in" in cookieless
+  // mode, where they had already activated — the exact conflation the predicate split prevents.
+  if (!state.trackingConsent.isTracking()) {
     log.debug('setAutoCapture() stored selection; listeners activate after opt-in.')
   }
 }
 
 /**
+ * Drops every persisted identifier: anonymous ID, external ID, session, and the tab registry —
+ * including the shared cookie in cross-subdomain mode, so the purge propagates to sibling
+ * subdomains. Returns false when any removal could not be confirmed, which in cross-subdomain
+ * mode means an identity cookie survived on the registrable domain and will resurface.
+ *
+ * Idempotent in end state but not side-effect-free: it issues removals (cookie deletions when
+ * cross-subdomain) and may log an error on an unconfirmed removal even when nothing was stored.
+ */
+const purgePersistedIdentity = (): boolean => {
+  let purged = true
+  try {
+    purged = clearProfile() && purged
+  } catch (err) {
+    log.error('Failed to clear profile:', err)
+    purged = false
+  }
+  try {
+    purged = clearSession() && purged
+  } catch (err) {
+    log.error('Failed to clear session:', err)
+    purged = false
+  }
+  return purged
+}
+
+/**
  * Sets the tracking consent state — the general form of optInTracking()/optOutTracking(),
  * covering the third state: 'cookieless' keeps events flowing with a server-derived,
- * daily-rotating anonymous identity and writes nothing to the device.
+ * daily-rotating anonymous identity and writes no identifiers to the device.
  *
- * Leaving 'granted' purges persisted identity (profile + session, including the
+ * Leaving 'granted' purges persisted identity (profile + session + tab registry, including the
  * cross-subdomain cookie) — no identifier may linger for a user who withdrew consent.
  * Granting later mints a fresh identity lazily on the next event; pre-consent events
  * stay permanently anonymous (no retroactive linking).
+ *
+ * Returns **false** when the change did not fully take effect: the value was not a valid consent
+ * state (consent then fails closed to `'denied'`, matching init()), the choice could not be
+ * persisted (so it will not survive a reload), or a persisted identifier could not be removed.
+ * Consent is always applied in memory, so `false` never means nothing happened — but a caller
+ * acting on a withdrawal should surface it rather than assume the device is clean.
  */
-export const setTrackingConsent = (consent: TrackingConsent): void => {
+export const setTrackingConsent = (consent: TrackingConsent): boolean => {
   if (!state) {
     log.warn('setTrackingConsent() called before init().')
-    return
+    return false
   }
-  state.trackingConsent.set(consent)
+  let ok = state.trackingConsent.set(consent)
+  const resolved = state.trackingConsent.getConsent()
   state.autoCapture.apply()
-  if (state.trackingConsent.getConsent() !== 'granted') {
-    // Idempotent teardown: required leaving 'granted', harmless from any other
-    // state (cookieless persisted nothing; denied already tore down).
-    clearProfile()
-    clearSession()
+  if (resolved === 'granted') {
+    // Re-arm the origin-local tab-liveness registry, which configureSession() skipped while consent
+    // withheld it. Without this the "all tabs closed → rotate" heuristic stays dead for the rest of
+    // the page's life — and under the consent-first flow the README recommends, init() always runs
+    // before the banner is answered, so it would never arm at all.
+    try {
+      onConsentGranted()
+    } catch (err) {
+      log.warn('Failed to re-arm tab tracking after consent was granted:', err)
+    }
+  } else {
+    // Required when leaving 'granted'. From another non-granted state it is a no-op in end state,
+    // though not free: it still issues removals and may log on an unconfirmed one.
+    ok = purgePersistedIdentity() && ok
   }
-  log.debug(`Tracking consent set to "${state.trackingConsent.getConsent()}".`)
+  log.debug(`Tracking consent set to "${resolved}".`)
+  return ok
 }
 
-export const optInTracking = (): void => setTrackingConsent('granted')
+export const optInTracking = (): boolean => setTrackingConsent('granted')
 
 // Opting out is a privacy action; setTrackingConsent('denied') tears down persisted
 // identity (see its JSDoc). Consent itself stays persisted (device-level) so the
 // opt-out survives reloads; a later optInTracking() starts a fresh identity.
-export const optOutTracking = (): void => setTrackingConsent('denied')
+export const optOutTracking = (): boolean => setTrackingConsent('denied')
 
 /**
  * Whether events are being tracked right now. Reflects tracking consent only — independent of
@@ -300,6 +369,7 @@ export const destroy = () => {
   configureUrlSanitizer(undefined)
   setDebugLogging(false)
 
+  cookielessIdentifyWarned = false
   state = null
 }
 
@@ -342,12 +412,33 @@ export const identify = async (externalId: string, traits?: Record<string, JsonV
       log.error('identify() requires a non-empty externalId string.')
       return
     }
-    if (!state.trackingConsent.isGranted()) {
-      log.debug(
-        state.trackingConsent.getConsent() === 'cookieless'
-          ? 'identify() dropped in cookieless mode — grant consent to enable identity.'
-          : 'identify() dropped because tracking consent is denied.',
+    // The server reserves this prefix for the ids it derives for cookieless events, and enforces it
+    // with a message-level CEL rule over the whole BatchCreateRequest. Accepting one here would
+    // persist it as the externalId, making it the distinctId on every later event — so every batch
+    // containing this user would be rejected wholesale (InvalidArgument, classified permanent, so
+    // the batch is committed and dropped) with nothing pointing back at the identify() that did it.
+    if (externalId.startsWith(RESERVED_DISTINCT_ID_PREFIX)) {
+      log.error(
+        `identify() rejected: externalId must not start with the reserved "${RESERVED_DISTINCT_ID_PREFIX}" prefix, which the server uses for cookieless identities.`,
       )
+      return
+    }
+    if (!state.trackingConsent.isGranted()) {
+      if (state.trackingConsent.getConsent() === 'cookieless') {
+        // Warn rather than debug, once per init(): isTrackingEnabled() returns true in cookieless,
+        // so `if (isTrackingEnabled()) await identify(id)` — the pre-flight check the README used to
+        // recommend — takes the branch, resolves cleanly, and identifies nobody. A debug-gated
+        // message is invisible to exactly the integrator who needs it. Once per init() because a
+        // cookieless site may call identify() on every page.
+        if (!cookielessIdentifyWarned) {
+          cookielessIdentifyWarned = true
+          log.warn(
+            'identify() is disabled in cookieless mode and this call was dropped — grant consent to enable identity. Gate on getTrackingConsent() === "granted" rather than isTrackingEnabled(), which is true in cookieless mode.',
+          )
+        }
+      } else {
+        log.debug('identify() dropped because tracking consent is denied.')
+      }
       return
     }
     if (state.dryRun) {
@@ -408,8 +499,9 @@ export const track: TrackFn = (kind: string, props?: Record<string, unknown>, op
 
     log.debug(`track("${kind}")`)
     const immediate = opts?.immediate ?? false
-    // Cookieless: the server derives identity; the identity modules are never
-    // touched, so their lazy-create/refresh paths cannot write anything.
+    // Cookieless: the server derives identity. This path never touches the identity modules, so
+    // their lazy-create/refresh paths cannot write anything — scoped to track() deliberately, since
+    // init() and setTrackingConsent() do reach them (to restore into memory and to purge).
     const identity =
       consent === 'cookieless'
         ? ({ cookieless: true } as const)

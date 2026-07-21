@@ -120,7 +120,9 @@ autoCapture: { pageView: true, scroll: enableScroll || undefined }
 
 Plain JS and the one-tag install aren't type-checked, so the SDK also warns at runtime whenever a selection ends up enabling nothing — whether from an explicit `false`, a non-`true` value like `"true"` or `1` from a template or config store, or a misspelled key — and names what it actually enabled.
 
-For consent-first flows, start with tracking consent denied. While denied, automatic listeners are not attached, and manual `track()` and `identify()` are dropped (events are not queued for later replay). Set `persist: true` to remember the user's choice across reloads — it is persisted like identity (through the cross-subdomain cookie when active, so an opt-out on one subdomain applies on siblings, plus `localStorage`); otherwise consent is in-memory and you pass the initial value yourself on each `init()`.
+For consent-first flows, start with tracking consent `'denied'` (nothing is captured or sent) or `'cookieless'` (events flow with no identity — see [Cookieless mode](#cookieless-mode-gdprdpdp-consent-banners)). While denied, automatic listeners are not attached, and manual `track()` and `identify()` are dropped (events are not queued for later replay). Set `persist: true` to remember the user's choice across reloads — it is persisted like identity (through the cross-subdomain cookie when active, so an opt-out on one subdomain applies on siblings, plus `localStorage`); otherwise consent is in-memory and you pass the initial value yourself on each `init()`.
+
+`persist: true` is recommended for consent-first flows. Once a visitor has actually made a choice, that recorded choice is what `init()` resolves — so if it is no longer `'granted'`, `init()` clears identity left over from an earlier consented visit. It clears nothing when the state came from your `default` seed rather than from a stored choice, in either direction: adding a `'denied'` default to an existing site does not delete your existing visitors' identities, and a placeholder `'denied'` corrected by a later `optInTracking()` does not mint a new identity on every page load.
 
 ```ts
 import { init, optInTracking, optOutTracking, setAutoCapture } from '@pug-sh/browser'
@@ -151,7 +153,7 @@ optOutTracking()
 | `debug` | `boolean` | `false` | Logs internal activity (each event tracked, plus the consent-denied and `dryRun` drops) to `console.debug`. Turn it on when events aren't arriving. Warnings and errors are always logged regardless, so this can only widen what you see. See [Debugging](#debugging). |
 | `dryRun` | `boolean` | `false` | Builds events as normal but never sends them. Does not change consent, or what `isTrackingEnabled()` reports. |
 | `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object is an **allowlist** enabling only the keys set to `true`, with every omitted key off. |
-| `trackingConsent` | `'granted' \| 'denied' \| TrackingConsentConfig` | `'granted'` | Initial consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored. Object form: `default` seeds the first run; `persist: true` remembers the choice across reloads. |
+| `trackingConsent` | `'granted' \| 'cookieless' \| 'denied' \| TrackingConsentConfig` | `'granted'` | Initial consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored; `'cookieless'` keeps events flowing without identity. Object form: `default` seeds the first run; `persist: true` remembers the choice across reloads. |
 | `crossSubdomainTracking` | `boolean \| { domain: string }` | `false` | **Off by default** — sharing identity across subdomains weakens browser isolation from same-origin to same-site, so it is an explicit opt-in. `false` keeps persistence origin-scoped in `localStorage`; `true` shares identity (anonymous ID, external ID, session, consent) across subdomains via a first-party cookie on the auto-discovered registrable domain, and `{ domain }` pins that cookie domain explicitly. See [Cross-subdomain tracking](#cross-subdomain-tracking) for fallback behavior and the multi-tenant caveat. |
 | `sanitizeUrl` | `(url: string) => string` | — | Rewrites outgoing URLs (`$url`, `$referrer`, form actions) before they're sent — e.g. to mask IDs or strip PII. See [Privacy controls](#privacy-controls). |
 
@@ -165,20 +167,25 @@ With `crossSubdomainTracking: true`, identity is written to a first-party cookie
 
 | Function | Description |
 |---|---|
-| `setTrackingConsent(state)` | Sets the consent state: `'granted'`, `'cookieless'`, or `'denied'`. Leaving `'granted'` deletes the stored identity (profile + session, including the cross-subdomain cookie); granting later starts a fresh identity on the next event — pre-consent events are never linked to it. |
-| `optInTracking()` | Shorthand for `setTrackingConsent('granted')`: applies the stored `autoCapture` selection and allows `track()` / `identify()` to send with a persistent identity. |
-| `optOutTracking()` | Shorthand for `setTrackingConsent('denied')`: tears down automatic listeners and drops future `track()` / `identify()` calls entirely. |
+| `setTrackingConsent(state)` | Sets the consent state: `'granted'`, `'cookieless'`, or `'denied'`. Leaving `'granted'` deletes the stored identity (profile + session + tab registry, including the cross-subdomain cookie); granting later starts a fresh identity on the next event — pre-consent events are never linked to it. **Returns `false`** if the change did not fully take effect: an unrecognized state (consent then fails closed to `'denied'`), a choice that could not be persisted, or an identifier that could not be removed. See [Handling a failed consent change](#handling-a-failed-consent-change). |
+| `optInTracking()` | Shorthand for `setTrackingConsent('granted')`: applies the stored `autoCapture` selection and allows `track()` / `identify()` to send with a persistent identity. Returns the same boolean. |
+| `optOutTracking()` | Shorthand for `setTrackingConsent('denied')`: tears down automatic listeners and drops future `track()` / `identify()` calls entirely. Returns the same boolean. |
 | `isTrackingEnabled()` | Whether events are flowing right now — `true` for both `'granted'` and `'cookieless'` (use `getTrackingConsent()` to distinguish). Independent of `dryRun`, which suppresses delivery without changing consent. Warns and returns `false` before `init()`, which is accurate: nothing is being tracked yet. |
 | `getTrackingConsent()` | The user's recorded choice: `'granted'`, `'cookieless'`, `'denied'`, or `undefined` before `init()`. It reports `undefined` rather than `'denied'` because a persisted choice is only read from storage during `init()` — so gate your consent banner on it *after* calling `init()`, or you'll prompt users who already opted in. |
 | `setAutoCapture(selection)` | Stores the desired automatic listener selection. Applies immediately while tracking is active (granted or cookieless); deferred until consent allows tracking when denied. |
 
 #### Cookieless mode (GDPR/DPDP consent banners)
 
-`'cookieless'` is the middle consent state: events keep flowing, but the SDK stores
-**nothing** on the device — no cookies, no localStorage, not even the event queue — and
-sends no identity. The server derives a daily-rotating anonymous id instead, so
-consent-rejecting visitors still appear in traffic metrics while staying anonymous and
-excluded from user counts by default.
+`'cookieless'` is the middle consent state: events keep flowing, but the SDK writes **no
+identifiers** to the device — no session, no profile, no cross-subdomain cookie, not even
+the queued event payloads — and sends no identity. The server derives a daily-rotating
+anonymous id instead, so consent-rejecting visitors still appear in traffic metrics while
+staying anonymous and excluded from user counts by default.
+
+The one thing still written is the consent choice itself, and only when you opt into
+`persist: true`: a record of the user's refusal, so it survives a reload and applies across
+sibling subdomains. That record is a strictly-necessary preference rather than analytics
+identity. With `persist: false` (the default) nothing at all is stored.
 
 ```js
 // Privacy-first default: start cookieless until the banner answers.
@@ -196,6 +203,31 @@ onRejectAll(() => pug.setTrackingConsent('denied'))
 Granting consent later starts a **fresh** identity — pre-consent events are never linked
 to it. Revoking from `'granted'` deletes the stored identity (including the
 cross-subdomain cookie). `identify()` is disabled in cookieless mode.
+
+#### Handling a failed consent change
+
+`setTrackingConsent()`, `optInTracking()` and `optOutTracking()` return a boolean. It is `true`
+when the change fully took effect, and `false` in three cases worth handling in a consent banner:
+
+- **The state was not recognized.** CMPs speak their own vocabulary (`'reject'`, `'opt-out'`, a
+  boolean, or `null` before the user answers). Rather than keep the previous state — which for a
+  user clicking *Reject* would silently mean staying fully tracked — consent **fails closed to
+  `'denied'`**, matching how `init()` already treats the same untrusted input. Map your CMP's values
+  explicitly rather than relying on this.
+- **The choice could not be persisted** (`persist: true` with storage full or cookies blocked). The
+  state applies in memory, but the next page load falls back to the `default` seed — so an opt-out
+  can quietly become a re-consent.
+- **A stored identifier could not be removed.** With `crossSubdomainTracking` this means the identity
+  cookie survived on the registrable domain and will resurface.
+
+```js
+if (!pug.setTrackingConsent(choice)) {
+  // Surface it — don't assume the device is clean or that the choice will survive a reload.
+  reportConsentFailure(pug.getTrackingConsent())
+}
+```
+
+The state is always applied in memory when valid, so `false` never means "nothing happened".
 
 ### Privacy controls
 
@@ -259,7 +291,9 @@ await identify('user_123', {
 - `externalId` must be a non-empty string, such as your database user ID or email.
 - `traits` is an optional object of profile properties. Values should be JSON-compatible.
 - On the first identify call, the SDK includes the anonymous ID so anonymous events can be merged into the identified profile.
-- `identify()` returns a promise and never throws — invalid input, denied consent, dry-run, and RPC failures are logged and the call resolves without sending. Check `isTrackingEnabled()` first if you need to branch on consent.
+- `identify()` returns a promise and never throws — invalid input, denied consent, cookieless mode, dry-run, and RPC failures are logged and the call resolves without sending.
+- `externalId` must not start with `cookieless-`; the server reserves that prefix for the identities it derives in cookieless mode, and rejects any batch carrying one.
+- To branch on consent, check `getTrackingConsent() === 'granted'` — **not** `isTrackingEnabled()`, which is also `true` in cookieless mode, where `identify()` is disabled and resolves without doing anything.
 
 Use `reset()` when a user signs out or switches accounts:
 

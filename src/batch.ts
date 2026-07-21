@@ -267,28 +267,46 @@ export const createBatchedTransport = (
       return
     }
     clearTimer()
-    // One in-flight batch at a time (the state machine serializes); each queue
-    // keeps its own lock, so the target picks whichever has pending events.
-    const target = storage.size > 0 ? storage : cookielessStorage
-    const batch = target.lock(maxSize)
+    // One in-flight batch at a time (the state machine serializes), drawn from BOTH queues in a
+    // single request — the way beaconFlush/destroy already build theirs, and what BatchCreate
+    // accepts. Targeting one queue per flush starved the cookieless queue for the entire duration
+    // of any continuous consented stream (`storage.size > 0` always chose `storage`) while
+    // `totalSize() >= maxSize` tripped the threshold on every arriving event, degrading the
+    // consented queue from batched sends to one request per event. Worse, `storage` is
+    // localStorage-backed, so a single transiently-failing consented event survives page loads and
+    // could block cookieless collection on that device indefinitely.
+    const consented = storage.lock(maxSize)
+    const cookieless = cookielessStorage.lock(maxSize - consented.length)
+    const batch = [...consented, ...cookieless]
     if (batch.length === 0) {
       return
     }
 
     state = 'flushing'
 
+    // Only a queue that contributed holds a lock; committing or rolling back the other would act on
+    // a lock it does not own. Mirrors the guarded form in destroy().
+    const settle = (outcome: 'commit' | 'rollback') => {
+      if (consented.length > 0) {
+        outcome === 'commit' ? storage.commit() : storage.rollback()
+      }
+      if (cookieless.length > 0) {
+        outcome === 'commit' ? cookielessStorage.commit() : cookielessStorage.rollback()
+      }
+    }
+
     inner
       .sendBatch(batch)
       .then(res => {
         warnIfPartiallyAccepted(res.accepted, batch.length)
-        target.commit()
+        settle('commit')
       })
       .catch(err => {
         if (isPermanentError(err)) {
-          target.commit()
+          settle('commit')
           log.error(`Permanent error, ${batch.length} events dropped (will NOT retry):`, err)
         } else {
-          target.rollback()
+          settle('rollback')
           log.warn('Transient error sending batch, will retry:', err)
         }
       })
@@ -326,12 +344,24 @@ export const createBatchedTransport = (
     if (batch.length === 0) {
       return
     }
+    // Guarded on contribution like flush()/destroy(), rather than relying on the unstated invariant
+    // that no lock is held at `idle`. That invariant does hold here (the early return above), but
+    // destroy()'s comment explains why acting on a lock you do not own is a real hazard — leaving
+    // one call site unguarded invites a reader to conclude it is safe everywhere.
     if (inner.beacon?.(batch)) {
-      storage.commit()
-      cookielessStorage.commit()
+      if (a.length > 0) {
+        storage.commit()
+      }
+      if (b.length > 0) {
+        cookielessStorage.commit()
+      }
     } else {
-      storage.rollback()
-      cookielessStorage.rollback()
+      if (a.length > 0) {
+        storage.rollback()
+      }
+      if (b.length > 0) {
+        cookielessStorage.rollback()
+      }
       log.warn(`sendBeacon failed for ${batch.length} events; they remain queued for next flush.`)
     }
   }
@@ -380,19 +410,21 @@ export const createBatchedTransport = (
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('pagehide', beaconFlush)
 
-      // If a flush is in-flight it owns that queue's lock: its events are
-      // beaconed best-effort via peek and NEVER committed here (committing
-      // under a held lock would splice the in-flight batch out from under the
-      // flush's own commit/rollback). A queue we lock ourselves is committed
-      // on beacon success as before.
+      // If a flush is in-flight it owns that queue's lock, so lock() here returns []. What gets
+      // beaconed for that queue is the queue's *unlocked tail* — peekUnlocked() excludes the
+      // in-flight batch, which the flush's own commit/rollback still owns and which is NEVER
+      // committed here (committing under a held lock would splice that batch out from under it).
+      // A queue we lock ourselves is committed on beacon success as before.
+      //
+      // Duplicate risk, same as beaconFlush's in-flight branch and called out for the same reason: a
+      // peeked tail is sent but stays queued, so if the in-flight flush then succeeds and the page
+      // survives, those events are delivered twice. Accepted — losing them is worse, and BatchCreate
+      // is keyed by eventId.
       const a = storage.lock(storage.size)
       const b = cookielessStorage.lock(cookielessStorage.size)
-      const payload = [
-        ...a,
-        ...b,
-        ...(a.length === 0 ? storage.peekUnlocked() : []),
-        ...(b.length === 0 ? cookielessStorage.peekUnlocked() : []),
-      ]
+      const consentedTail = a.length === 0 ? storage.peekUnlocked() : []
+      const cookielessTail = b.length === 0 ? cookielessStorage.peekUnlocked() : []
+      const payload = [...a, ...b, ...consentedTail, ...cookielessTail]
       if (payload.length > 0) {
         if (inner.beacon?.(payload)) {
           if (a.length > 0) {
@@ -402,13 +434,28 @@ export const createBatchedTransport = (
             cookielessStorage.commit()
           }
         } else {
-          // Beacon failed — leave events queued (the persisted queue recovers
-          // consented events on next init; cookieless ones are lost with the page).
           if (a.length > 0) {
             storage.rollback()
           }
           if (b.length > 0) {
             cookielessStorage.rollback()
+          }
+          // beacon() returns false whenever sendBeacon is absent or blocked, not only on payload
+          // rejection — a routine path, and the only one where loss is permanent. The consented
+          // queue is localStorage-backed and recovers on the next init(); the cookieless queue is
+          // memory-only and dies with this transport, so its events are gone. Reporting them at
+          // different levels keeps the recoverable case from reading as data loss and vice versa.
+          const consentedCount = a.length + consentedTail.length
+          const cookielessCount = b.length + cookielessTail.length
+          if (consentedCount > 0) {
+            log.warn(
+              `sendBeacon failed during destroy(); ${consentedCount} events remain in the persisted queue and will retry on next init().`,
+            )
+          }
+          if (cookielessCount > 0) {
+            log.error(
+              `sendBeacon failed during destroy(); ${cookielessCount} cookieless events were dropped — the cookieless queue is memory-only and cannot be recovered.`,
+            )
           }
         }
       }

@@ -14,7 +14,19 @@ const { sendBatch, send, beacon } = vi.hoisted(() => ({
 }))
 vi.mock('./transport.js', () => ({ createTransport: () => ({ send, sendBatch, beacon }) }))
 
-const { createBatchedTransport } = await import('./batch.js')
+const { createBatchedTransport: createRawBatchedTransport } = await import('./batch.js')
+
+// Every transport registers `pagehide`/`visibilitychange` listeners in its constructor and only
+// removes them in destroy(). Tests that never destroyed theirs left those listeners live, so a
+// later `dispatchEvent('pagehide')` fired every previous test's beaconFlush too — the beacon test
+// below passed only because those stale queues happened to be empty and ours registered last.
+// Tracking every transport and destroying it in afterEach keeps that coupling out of the suite.
+const liveTransports: Array<ReturnType<typeof createRawBatchedTransport>> = []
+const createBatchedTransport = (...args: Parameters<typeof createRawBatchedTransport>) => {
+  const t = createRawBatchedTransport(...args)
+  liveTransports.push(t)
+  return t
+}
 
 const ENDPOINT = 'https://api.example.com'
 const KEY = 'test-key'
@@ -34,6 +46,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  for (const t of liveTransports.splice(0)) {
+    t.destroy()
+  }
   vi.useRealTimers()
 })
 
@@ -151,10 +166,68 @@ describe('cookieless queue routing', () => {
     await t.send(consentedEvt('a'))
     await t.send(cookielessEvt('c'))
     window.dispatchEvent(new Event('pagehide'))
-    // Listeners from earlier tests' undestroyed transports also fire on this
-    // dispatch; ours registered last, so its combined-drain call is the last one.
-    const [lastBatch = []] = (beacon.mock.calls.at(-1) ?? []) as [Event[]]
-    expect(lastBatch.map(e => e.eventId).sort()).toEqual(['a', 'c'])
+    // Content-addressed rather than positional: find the call that carries our events instead of
+    // assuming ours is last, so the assertion does not depend on listener registration order.
+    const ourCall = (beacon.mock.calls as Array<[Event[]]>).find(([events]) =>
+      events.some(e => e.eventId === 'a' || e.eventId === 'c'),
+    )
+    expect(ourCall?.[0].map(e => e.eventId).sort()).toEqual(['a', 'c'])
     t.destroy()
+  })
+
+  // I4: `target = storage.size > 0 ? storage : cookielessStorage` meant a continuous consented
+  // stream always selected the consented queue, so cookieless events waited for a gap in traffic —
+  // while `totalSize() >= maxSize` counted the stalled cookieless backlog and tripped the flush
+  // threshold on every arriving event, degrading consented traffic to one request per event.
+  it('drains cookieless events even under a continuous consented stream', async () => {
+    sendBatch.mockResolvedValue(okResponse(10))
+    const t = createBatchedTransport(ENDPOINT, KEY, freshProject(), { maxSize: 10, maxWaitMs: 5000 })
+
+    for (let i = 0; i < 9; i++) {
+      await t.send(cookielessEvt(`c${i}`))
+    }
+    // A consented event every 2s for 24s — never a pause long enough for the old code to switch.
+    for (let i = 0; i < 12; i++) {
+      await t.send(consentedEvt(`a${i}`))
+      await vi.advanceTimersByTimeAsync(2000)
+    }
+
+    const sentIds = sendBatch.mock.calls.flatMap(([events]: [Event[]]) => events.map(e => e.eventId))
+    const cookielessSent = sentIds.filter(id => id.startsWith('c'))
+    expect(cookielessSent).toHaveLength(9)
+    // And the consented queue is genuinely batched rather than one request per event.
+    expect(sendBatch.mock.calls.length).toBeLessThan(12)
+  })
+
+  it('builds a single batch from both queues, capped at maxSize', async () => {
+    sendBatch.mockResolvedValue(okResponse(4))
+    const t = createBatchedTransport(ENDPOINT, KEY, freshProject(), { maxSize: 4, maxWaitMs: 50 })
+    await t.send(consentedEvt('a1'))
+    await t.send(cookielessEvt('c1'))
+    await t.send(consentedEvt('a2'))
+    await t.send(cookielessEvt('c2'))
+    await vi.advanceTimersByTimeAsync(100)
+
+    const [firstBatch] = sendBatch.mock.calls[0] as [Event[]]
+    expect(firstBatch.map(e => e.eventId).sort()).toEqual(['a1', 'a2', 'c1', 'c2'])
+    expect(firstBatch.length).toBeLessThanOrEqual(4)
+  })
+
+  // I6: identical failure (beacon returns false, which happens whenever sendBeacon is absent or
+  // blocked — not only on payload rejection), but destroy() is the terminal path: the cookieless
+  // queue is memory-only and dies with the transport, so its events are irrecoverable. That was
+  // the one path with permanent loss and the one path with no logging at all.
+  it('destroy() reports beacon failure, distinguishing recoverable from permanent loss', async () => {
+    beacon.mockReturnValue(false)
+    const warn = vi.spyOn(log, 'warn')
+    const error = vi.spyOn(log, 'error')
+    const t = createBatchedTransport(ENDPOINT, KEY, freshProject(), { maxSize: 10, maxWaitMs: 60_000 })
+    await t.send(consentedEvt('a'))
+    await t.send(cookielessEvt('c'))
+
+    t.destroy()
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('remain in the persisted queue'))
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('cannot be recovered'))
   })
 })

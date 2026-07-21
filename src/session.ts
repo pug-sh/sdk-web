@@ -43,6 +43,15 @@ let lastHeartbeat = 0
 let lastPersistMs = 0
 let fallbackSessionId = ''
 let onPageHide: (() => void) | null = null
+// Retained so the registry can be re-armed when consent is granted mid-page, and so the
+// write paths below (rotate/resetIdentity) can consult consent, which became runtime-mutable
+// with setTrackingConsent(). Guarding only configureSession() would guard creation while
+// leaving every later write unguarded.
+let sessionProjectId = ''
+let isGrantedFn: (() => boolean) | null = null
+
+/** Full consent is required before anything reaches the device. Absent getter = unguarded (tests, non-init callers). */
+const mayWriteToDevice = (): boolean => isGrantedFn?.() ?? true
 
 export const configureSession = (
   projectId: string,
@@ -55,6 +64,8 @@ export const configureSession = (
     log.warn('Storage unavailable; session state will not persist.')
   }
   fallbackSessionId = uuidv7()
+  sessionProjectId = projectId
+  isGrantedFn = isGranted ?? null
   config.storageKey = makeStorageKey(projectId, 'session')
 
   if (sessionConfig?.idleTimeoutMinutes != null) {
@@ -72,6 +83,17 @@ export const configureSession = (
     }
   }
 
+  armTabRegistry({ detectClosedTabs: true })
+}
+
+/**
+ * Registers this tab in the origin-local liveness registry and attaches the pagehide reaper.
+ *
+ * `detectClosedTabs` runs the "no live tabs survived → rotate" heuristic, which is only meaningful
+ * at init(). When re-arming after consent is granted mid-page this tab is demonstrably alive and the
+ * session is in use, so the heuristic is skipped — running it would rotate a live session.
+ */
+const armTabRegistry = ({ detectClosedTabs }: { detectClosedTabs: boolean }): void => {
   // With a cross-subdomain session, tab liveness (localStorage + pagehide) is the wrong signal:
   // an init on one subdomain with no live tabs there would rotate a session still active on a
   // sibling subdomain. In that mode sessions end by idle/max timeout only.
@@ -79,17 +101,21 @@ export const configureSession = (
     return
   }
 
-  // The tab registry is a device write, so it needs full consent: in cookieless
-  // mode the SDK stores nothing (and never resolves a session), and in denied
-  // mode nothing may be written either. Same accepted degradation as the
-  // cross-subdomain skip above — if consent is granted mid-page, sessions end
-  // by idle/max timeout only until the next init() under granted consent.
-  if (!(isGranted?.() ?? true)) {
+  // The tab registry is a device write, so it needs full consent: in cookieless mode the SDK stores
+  // nothing (and never resolves a session), and in denied mode nothing may be written either.
+  // setTrackingConsent() re-arms this on a later grant, so the heuristic is unavailable only while
+  // consent actually withholds it rather than for the rest of the page's life.
+  if (!mayWriteToDevice()) {
+    return
+  }
+
+  // Already armed (a re-grant after a grant, or a redundant call) — the entry and listener stand.
+  if (tabId) {
     return
   }
 
   tabsStorage = isStorageAvailable() ? localStorage : null
-  tabsKey = makeStorageKey(projectId, 'tabs')
+  tabsKey = makeStorageKey(sessionProjectId, 'tabs')
   tabId = Math.random().toString(36).slice(2)
 
   // Track active tabs via per-tab timestamps in localStorage.
@@ -118,7 +144,7 @@ export const configureSession = (
       lastHeartbeat = now
       tabsStorage.setItem(tabsKey, JSON.stringify(alive))
 
-      if (allTabsWereClosed) {
+      if (detectClosedTabs && allTabsWereClosed) {
         const existing = read()
         if (existing) {
           rotate()
@@ -142,6 +168,55 @@ export const configureSession = (
       log.warn('Tab tracking initialization failed:', err)
     }
   }
+}
+
+/**
+ * Detaches the pagehide reaper and forgets this tab's registry identity, so no later write path can
+ * recreate an entry. `purge` removes the whole registry key (a privacy teardown wiping the device);
+ * without it only this tab's own entry is dropped (an ordinary teardown — sibling tabs live on).
+ */
+const releaseTabRegistry = ({ purge }: { purge: boolean }): boolean => {
+  if (onPageHide) {
+    window.removeEventListener('pagehide', onPageHide)
+    onPageHide = null
+  }
+  let released = true
+  try {
+    if (tabsStorage && tabsKey && tabId) {
+      if (purge) {
+        tabsStorage.removeItem(tabsKey)
+        released = tabsStorage.getItem(tabsKey) === null
+      } else {
+        const tabs: Record<string, number> = JSON.parse(tabsStorage.getItem(tabsKey) ?? '{}')
+        delete tabs[tabId]
+        if (Object.keys(tabs).length === 0) {
+          tabsStorage.removeItem(tabsKey)
+        } else {
+          tabsStorage.setItem(tabsKey, JSON.stringify(tabs))
+        }
+      }
+    }
+  } catch (err) {
+    log.warn('Failed to update tab registry:', err)
+    released = false
+  }
+  tabsStorage = null
+  tabsKey = ''
+  tabId = ''
+  lastHeartbeat = 0
+  return released
+}
+
+/**
+ * Re-arms the tab registry after consent is granted mid-page. Called by setTrackingConsent() —
+ * without it the liveness heuristic stays dead for the rest of the page's life, and the README's
+ * recommended consent-first flow (init() before the banner is answered) never arms it at all.
+ */
+export const onConsentGranted = (): void => {
+  if (!config.storageKey) {
+    return
+  }
+  armTabRegistry({ detectClosedTabs: false })
 }
 
 const read = (): StoredState | null => {
@@ -212,6 +287,13 @@ export const rotate = (): void => {
   const deviceId = state?.deviceId ?? read()?.deviceId ?? uuidv7()
   const next: StoredState = { sessionId: uuidv7(), startTime: now, lastActivityTime: now, deviceId }
   state = next
+  // Public API (barrel + CDN global), so it is reachable while cookieless or denied — where writing
+  // a fresh session id would plant exactly the device identifier those states promise not to store.
+  // Rotate in memory only; a later grant persists lazily on the next event.
+  if (!mayWriteToDevice()) {
+    log.debug('rotate() rotated the session in memory only — consent does not permit writing to the device.')
+    return
+  }
   // A genuine persist failure (store present but the write did not land) means the new session id
   // will not survive a page load — surface it. `store &&` skips the in-memory-only case, which
   // configureSession already warned about.
@@ -252,6 +334,17 @@ export const resetIdentity = (): void => {
   const now = Date.now()
   const next: StoredState = { sessionId: uuidv7(), startTime: now, lastActivityTime: now, deviceId: uuidv7() }
   state = next
+  // Reached from the public reset() while cookieless or denied, where persisting the fresh session +
+  // device id would plant a device identifier for a user who declined one. Clear instead of write:
+  // reset() means "forget this user", and in those states there is nothing that should be stored.
+  if (!mayWriteToDevice()) {
+    if (store && !store.removeItem(config.storageKey)) {
+      log.error('Failed to clear the session during reset — the previous session may resurface on the next page load.')
+    }
+    state = null
+    lastPersistMs = 0
+    return
+  }
   // Logout/privacy-critical: a failed persist means the previous session and device id could
   // resurface on the next page load, so this is an error rather than a warning.
   if (store && !write(next)) {
@@ -264,46 +357,39 @@ export const resetIdentity = (): void => {
 // opt-out to drop identifiers without the full teardown destroySession() performs. In
 // cross-subdomain mode this removes the shared cookie, so the opt-out propagates to sibling
 // subdomains.
-export const clearSession = (): void => {
+export const clearSession = (): boolean => {
+  let cleared = true
   // opt-out teardown: a failed removal in cross-subdomain mode means the shared session
   // cookie survived and would resurface on the next read, so surface it at error level.
   if (store && !store.removeItem(config.storageKey)) {
     log.error('Failed to clear the session from storage — it may resurface on the next page load.')
+    cleared = false
+  }
+  // The tab registry is a device write too, and it outlived the purge that was supposed to leave the
+  // device clean: the key survived, still carrying the tabId → timestamp pair written while consent
+  // was granted, and the pagehide reaper stayed attached and wrote again on the way out. Purging the
+  // whole key (not just this tab's entry) is deliberate — this is a device wipe, not a tab teardown.
+  if (!releaseTabRegistry({ purge: true })) {
+    log.error('Failed to clear the tab registry from storage — it may resurface on the next page load.')
+    cleared = false
   }
   state = null
   lastPersistMs = 0
+  return cleared
 }
 
 export const destroySession = (): void => {
-  if (onPageHide) {
-    window.removeEventListener('pagehide', onPageHide)
-    onPageHide = null
-  }
   // Teardown, not logout: leave persisted session state in place so a later init() resumes it. In
   // cross-subdomain mode the session lives in a cookie shared by every sibling subdomain, so
   // removing it here would end sessions site-wide from an unrelated page's teardown. reset() (which
   // rotates to a fresh identity) and clearSession() (which removes it) are the deliberate discards.
   // Only this tab's origin-local registry entry is dropped, since this tab really is going away.
-  try {
-    if (tabsStorage && tabsKey && tabId) {
-      const tabs: Record<string, number> = JSON.parse(tabsStorage.getItem(tabsKey) ?? '{}')
-      delete tabs[tabId]
-      if (Object.keys(tabs).length === 0) {
-        tabsStorage.removeItem(tabsKey)
-      } else {
-        tabsStorage.setItem(tabsKey, JSON.stringify(tabs))
-      }
-    }
-  } catch (err) {
-    log.warn('Failed to update tab registry during destroy:', err)
-  }
+  releaseTabRegistry({ purge: false })
   state = null
   store = null
-  tabsStorage = null
-  tabsKey = ''
-  tabId = ''
-  lastHeartbeat = 0
   lastPersistMs = 0
   fallbackSessionId = ''
+  sessionProjectId = ''
+  isGrantedFn = null
   config = { ...DEFAULT_CONFIG }
 }

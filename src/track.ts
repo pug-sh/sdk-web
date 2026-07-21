@@ -209,8 +209,16 @@ const mapObjectValuesViaHeuristic = <T>(
  * a cookieless event that sends identity is rejected at validation), or the
  * caller supplies both ids. The union makes "cookieless with ids" and
  * "consented without ids" unrepresentable at compile time.
+ *
+ * The `?: never` members are what actually close it. Without them the two arms share no property,
+ * so TypeScript has no discriminant to narrow on, and excess-property checking against a union
+ * treats a property as known if it exists in *any* constituent — every spelling of a cookieless
+ * event carrying identity compiled, including the spread and variable forms that an explicit
+ * literal tag (`{ kind: 'cookieless' } | …`) would still admit. Pinned by event-identity.test-d.ts.
  */
-export type EventIdentity = { readonly cookieless: true } | { readonly sessionId: string; readonly distinctId: string }
+export type EventIdentity =
+  | { readonly cookieless: true; readonly sessionId?: never; readonly distinctId?: never }
+  | { readonly cookieless?: never; readonly sessionId: string; readonly distinctId: string }
 
 export const toEvent = (
   projectId: string,
@@ -250,7 +258,10 @@ export const toEvent = (
       },
       customProperties,
       kind,
-      ...('cookieless' in identity
+      // Value, not key presence: `'cookieless' in identity` was true for `{ cookieless: false }` and
+      // would have emitted `cookieless: true` for it. The type now forbids that shape, so this only
+      // keeps the runtime branch agreeing with the type rather than contradicting it silently.
+      ...(identity.cookieless === true
         ? { cookieless: true }
         : { sessionId: identity.sessionId, distinctId: identity.distinctId }),
       occurTime: opts?.timestamp && Number.isFinite(opts.timestamp) ? timestampFromMs(opts.timestamp) : timestampNow(),
