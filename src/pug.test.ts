@@ -783,30 +783,77 @@ describe('tracking consent persistence', () => {
   })
 })
 
-describe('url sanitizer wiring', () => {
-  type SentEvent = { autoProperties: Record<string, { value: { value: unknown } }> }
+describe('beforeSend wiring', () => {
+  type SentEvent = {
+    autoProperties: Record<string, { value: { value: unknown } }>
+    customProperties: Record<string, { value: { value: unknown } }>
+  }
 
-  it('applies init({ sanitizeUrl }) to outgoing event URLs', async () => {
+  it('applies init({ beforeSend }) to outgoing events', async () => {
     const { init, track } = await importPug()
 
-    init('project-id', { apiKey: 'api-key', autoCapture: false, sanitizeUrl: () => 'REDACTED' })
-    track('signup', { plan: 'pro' })
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      beforeSend: e => {
+        delete e.customProperties.ssn
+        return e
+      },
+    })
+    track('signup', { ssn: '123-45-6789', plan: 'pro' })
 
-    expect(transportSpies.send).toHaveBeenCalledOnce()
+    const event = transportSpies.send.mock.calls[0][0] as SentEvent
+    expect(event.customProperties.ssn).toBeUndefined()
+    expect(event.customProperties.plan.value.value).toBe('pro')
+  })
+
+  it('can mask $url, the job sanitizeUrl used to do', async () => {
+    const { init, track } = await importPug()
+    type SentEvent = { autoProperties: Record<string, { value: { value: unknown } }> }
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      beforeSend: e => {
+        e.autoProperties.$url = 'REDACTED'
+        return e
+      },
+    })
+    track('signup')
+
     const event = transportSpies.send.mock.calls[0][0] as SentEvent
     expect(event.autoProperties.$url.value.value).toBe('REDACTED')
   })
 
-  it('sends raw URLs after a destroy / re-init without a sanitizer', async () => {
+  // A dropped event must not reach the transport at all — not queued, not beaconed later.
+  it('never hands a dropped event to the transport', async () => {
+    const { init, track } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, beforeSend: () => null })
+    track('signup')
+
+    expect(transportSpies.send).not.toHaveBeenCalled()
+  })
+
+  // A JS or one-tag install gets no compile error for the removed option, so without this the
+  // migration is silent and URLs the integrator believes are masked start going out raw.
+  it('warns when the removed sanitizeUrl option is still passed', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, sanitizeUrl: () => 'x' } as never)
+
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('sanitizeUrl was removed'))
+  })
+
+  it('stops applying the hook after a destroy / re-init without one', async () => {
     const { destroy, init, track } = await importPug()
 
-    init('project-id', { apiKey: 'api-key', autoCapture: false, sanitizeUrl: () => 'REDACTED' })
+    init('project-id', { apiKey: 'api-key', autoCapture: false, beforeSend: () => null })
     destroy()
     init('project-id', { apiKey: 'api-key', autoCapture: false })
-    track('signup', { plan: 'pro' })
+    track('signup')
 
-    const event = transportSpies.send.mock.calls.at(-1)?.[0] as SentEvent
-    expect(event.autoProperties.$url.value.value).not.toBe('REDACTED')
+    expect(transportSpies.send).toHaveBeenCalledOnce()
   })
 })
 

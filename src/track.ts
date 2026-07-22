@@ -6,7 +6,7 @@ import { type Event, EventSchema } from './gen/sdk/events/v1/events_pb.js'
 import { log } from './logger.js'
 import { parseUserAgentData, parseUtmParams } from './parsers.js'
 import { SDK_VERSION } from './version.js'
-import type { TrackOptions } from './well-known-events.js'
+import type { PropValue, TrackOptions, WellKnownEventName } from './well-known-events.js'
 
 export type {
   JsonValue,
@@ -18,67 +18,102 @@ export type {
   WellKnownEventPropsMap,
 } from './well-known-events.js'
 
-let urlSanitizer: ((url: string) => string) | null = null
+/** Plain-JS view of an event, before protobuf conversion. Mutate the bags in place — they are
+ * readonly because replacing one and returning nothing would send the un-redacted original. */
+export type BeforeSendEvent = {
+  readonly kind: WellKnownEventName | (string & {})
+  readonly autoProperties: Record<string, string>
+  readonly customProperties: Record<string, PropValue>
+}
 
-// Sanitizer failures are logged once per init() (the flag resets in configureUrlSanitizer) so a
-// sanitizer that fails on every event can't bury the "you're losing all your URLs" signal in spam.
-let sanitizerFailureWarned = false
+/** Return the event to send it, `null` to drop it, or nothing to keep in-place mutations. */
+export type BeforeSendFn = (event: BeforeSendEvent) => BeforeSendEvent | null | void
 
-/**
- * Sets the URL sanitizer applied to `$url`, `$referrer`, and captured form actions before they
- * leave the device. Wired up from `init({ sanitizeUrl })`; pass `undefined` to clear it (done on
- * `destroy()`). A non-function value is a bug — the type forbids it, but a JS caller can slip one
- * in. Because passing *something* signals intent to sanitize, we fail closed: every URL field is
- * dropped (sanitized to `''`) rather than leaking raw URLs the caller believed were being redacted.
- */
-export const configureUrlSanitizer = (fn?: (url: string) => string): void => {
+let beforeSend: BeforeSendFn | null = null
+// One flag per failure class — a throw must not silence a later malformed return.
+let beforeSendThrewWarned = false
+let beforeSendMalformedWarned = false
+
+// Re-asserted after the hook: the backend keys on $projectId and cannot re-derive the other two.
+const PROTECTED_AUTO_PROPERTIES = ['$projectId', '$platform', '$sdkVersion'] as const
+
+/** Wired from `init({ beforeSend })`; `undefined` clears it. Fails closed like the URL sanitizer:
+ * a non-function drops every event rather than sending data the caller thought was scrubbed. */
+export const configureBeforeSend = (fn?: BeforeSendFn): void => {
   if (fn !== undefined && typeof fn !== 'function') {
-    log.warn('sanitizeUrl must be a function; dropping URL fields to avoid leaking unsanitized data.')
-    urlSanitizer = () => ''
+    log.warn('beforeSend must be a function; dropping all events to avoid sending unredacted data.')
+    beforeSend = () => null
   } else {
-    urlSanitizer = fn ?? null
+    beforeSend = fn ?? null
   }
-  sanitizerFailureWarned = false
+  beforeSendThrewWarned = false
+  beforeSendMalformedWarned = false
 }
 
-/**
- * Runs `url` through the configured sanitizer, returning the raw URL when none is set. An empty
- * string is returned as-is without calling the sanitizer: there is nothing to redact, and handing
- * `''` to a base-relative sanitizer would let it fabricate a URL (e.g. resolve to the page origin),
- * corrupting a referrer-less `$referrer`.
- *
- * Fails closed: if the sanitizer throws or returns a non-string, the URL is dropped to an empty
- * string rather than the raw value — a buggy sanitizer must not leak the PII it was meant to strip.
- * Never throws, so it is safe to call from the always-safe `track()` path.
- */
-export const sanitizeUrlValue = (url: string): string => {
-  if (!url || !urlSanitizer) {
-    return url
+// A Map/Set/array/class instance yields nothing from Object.entries, so accepting one would ship
+// an event stripped to its re-asserted properties, silently.
+const isPlainBag = (v: unknown): boolean => {
+  if (typeof v !== 'object' || v === null) {
+    return false
   }
+  const proto = Object.getPrototypeOf(v)
+  return proto === Object.prototype || proto === null
+}
+
+// Never throws. A hook that throws or returns garbage drops the event — there is no narrower thing
+// to fail closed on, and the hook exists to keep something out of the payload.
+const applyBeforeSend = (
+  kind: string,
+  autoProperties: Record<string, string>,
+  customProperties: Record<string, PropValue>,
+): { autoProperties: Record<string, unknown>; customProperties: Record<string, unknown> } | null => {
+  if (!beforeSend) {
+    return { autoProperties, customProperties }
+  }
+
+  // Snapshot first: the hook gets the live bag, so a `delete e.autoProperties.$projectId` would
+  // otherwise empty the very thing we re-assert from.
+  const protectedValues = PROTECTED_AUTO_PROPERTIES.map(k => autoProperties[k])
+
+  // Held, not rebuilt: a hook that replaces a bag and returns nothing must not send the originals.
+  const draft: BeforeSendEvent = { kind, autoProperties, customProperties }
+
+  let returned: BeforeSendEvent | null | void
   try {
-    const result = urlSanitizer(url)
-    if (typeof result !== 'string') {
-      warnSanitizerFailure('sanitizeUrl returned a non-string value; dropping URL to avoid leaking unsanitized data.')
-      return ''
-    }
-    return result
+    returned = beforeSend(draft)
   } catch (err) {
-    // Log the error type only, never the error itself — a sanitizer that interpolates the URL into
-    // its message would otherwise re-surface the PII it was meant to strip into client-side logs.
-    warnSanitizerFailure(
-      'sanitizeUrl threw; dropping URL to avoid leaking unsanitized data. Error type:',
-      err instanceof Error ? err.name : typeof err,
-    )
-    return ''
+    // Error type only — a hook that interpolates the value it was redacting would re-surface it.
+    if (!beforeSendThrewWarned) {
+      beforeSendThrewWarned = true
+      log.warn(
+        'beforeSend threw; dropping event to avoid sending unredacted data. Error type:',
+        err instanceof Error ? err.name : typeof err,
+      )
+    }
+    return null
   }
-}
 
-const warnSanitizerFailure = (msg: string, ...args: unknown[]): void => {
-  if (sanitizerFailureWarned) {
-    return
+  if (returned === null) {
+    log.debug(`Event "${kind}" dropped by beforeSend`)
+    return null
   }
-  sanitizerFailureWarned = true
-  log.warn(msg, ...args)
+  // Undefined = mutated in place and fell off the end, which in-place editing invites.
+  const shaped: BeforeSendEvent = returned === undefined ? draft : returned
+  if (!isPlainBag(shaped) || !isPlainBag(shaped.autoProperties) || !isPlainBag(shaped.customProperties)) {
+    if (!beforeSendMalformedWarned) {
+      beforeSendMalformedWarned = true
+      log.warn(
+        'beforeSend returned a malformed event (expected the event, null, or nothing); dropping event to avoid sending unredacted data.',
+      )
+    }
+    return null
+  }
+
+  const finalAuto: Record<string, unknown> = { ...shaped.autoProperties }
+  PROTECTED_AUTO_PROPERTIES.forEach((key, i) => {
+    finalAuto[key] = protectedValues[i]
+  })
+  return { autoProperties: finalAuto, customProperties: shaped.customProperties }
 }
 
 // Truncate by UTF-8 byte length to stay under the proto's `string.max_len = 1024`, which
@@ -192,16 +227,9 @@ const mapPropsViaHeuristic = (
   }
 }
 
-const mapObjectValuesViaHeuristic = <T>(
-  source: Record<string, T>,
-  transform: (value: T) => PropertyValue,
-): Record<string, PropertyValue> => {
-  const result: Record<string, PropertyValue> = {}
-  for (const [k, v] of Object.entries(source)) {
-    result[k] = transform(v)
-  }
-  return result
-}
+// Lives here, not in events/page_view.ts: `toEvent` gates $pageTitle on it, and core importing a
+// tracker module breaks every test that vi.mocks it.
+export const eventPageView = 'page_view' satisfies WellKnownEventName
 
 /**
  * Event identity is a closed choice: either the server derives it (cookieless
@@ -227,35 +255,41 @@ export const toEvent = (
   props?: Record<string, unknown>,
   opts?: TrackOptions,
 ): Event | null => {
-  const customProperties: Record<string, PropertyValue> = {}
-  if (props) {
-    mapPropsViaHeuristic(props, customProperties, kind)
+  // Built plain, hooked, then converted — so beforeSend sees values, not PropertyValue oneofs.
+  const rawAutoProperties: Record<string, string> = {
+    $projectId: projectId,
+    // Not derivable server-side from the UA header (unlike $browser/$os/$device), so every SDK
+    // sends it. Value set is web | ios | android, matching devices.proto's `platform` constraint.
+    $platform: 'web',
+    $url: window.location.href,
+    $referrer: document.referrer,
+    $locale: navigator.language,
+    $screenWidth: String(window.screen.width),
+    $screenHeight: String(window.screen.height),
+    // Page-view only: titles carry names and order numbers, and every later event on the page
+    // shares its sessionId anyway.
+    ...(kind === eventPageView ? { $pageTitle: document.title } : {}),
+    $sdkVersion: SDK_VERSION,
+    ...parseUserAgentData(),
+    ...parseUtmParams(window.location.search),
   }
+
+  const shaped = applyBeforeSend(kind, rawAutoProperties, { ...props } as Record<string, PropValue>)
+
+  if (!shaped) {
+    return null
+  }
+
+  const autoProperties: Record<string, PropertyValue> = {}
+  mapPropsViaHeuristic(shaped.autoProperties, autoProperties, kind)
+  const customProperties: Record<string, PropertyValue> = {}
+  mapPropsViaHeuristic(shaped.customProperties, customProperties, kind)
 
   let event: Event
   try {
     event = create(EventSchema, {
       eventId: uuidv7(),
-      autoProperties: {
-        $projectId: makeStringValue(projectId),
-        // Not derivable server-side from the UA header (unlike $browser/$os/$device), so every SDK
-        // sends it. Value set is web | ios | android, matching devices.proto's `platform` constraint.
-        $platform: makeStringValue('web'),
-        $url: makeStringValue(sanitizeUrlValue(window.location.href)),
-        $referrer: makeStringValue(sanitizeUrlValue(document.referrer)),
-        $locale: makeStringValue(navigator.language),
-        $screenWidth: makeStringValue(String(window.screen.width)),
-        $screenHeight: makeStringValue(String(window.screen.height)),
-        $pageTitle: makeStringValue(document.title),
-        $sdkVersion: makeStringValue(SDK_VERSION),
-        ...mapObjectValuesViaHeuristic(
-          {
-            ...parseUserAgentData(),
-            ...parseUtmParams(window.location.search),
-          },
-          makeStringValue,
-        ),
-      },
+      autoProperties,
       customProperties,
       kind,
       // Value, not key presence: `'cookieless' in identity` was true for `{ cookieless: false }` and

@@ -1,4 +1,4 @@
-// Privacy controls example — `data-pug-no-capture` + `sanitizeUrl`.
+// Privacy controls example — `data-pug-no-capture` + `beforeSend`.
 //
 // Run from the repo root:
 //   bun run build && bun run serve
@@ -8,11 +8,11 @@
 // drives it through that global rather than importing the module-per-file dev build.
 //
 // The SDK is initialized in dryRun mode so this page never sends anything. The
-// URL panel reuses the exact maskUrl passed to init({ sanitizeUrl }); the capture
+// URL panel reuses the exact maskUrl used by init({ beforeSend }); the capture
 // panel reimplements the SDK's internal suppression check (data-pug-no-capture
 // takes no function) so you can see its effect on sample inputs.
 
-// ── 1. URL sanitizer: route masking + PII query-param stripping ──
+// ── 1. URL masking: route masking + PII query-param stripping ──
 //
 // Turns /orders/12345 → /orders/:orderId and drops sensitive query params.
 // The SDK can't know your routes, so the pattern list lives here, in your app.
@@ -24,6 +24,11 @@ const ROUTE_PATTERNS = [
 const STRIP_PARAMS = ['email', 'token', 'name']
 
 const maskUrl = url => {
+  // A referrer-less page view has '', which would resolve to the page origin — a fabricated
+  // self-referral. Guard before parsing.
+  if (typeof url !== 'string' || !url) {
+    return url
+  }
   let u
   try {
     u = new URL(url, window.location.origin)
@@ -42,11 +47,19 @@ const maskUrl = url => {
 // ── 2. Initialize the SDK with both privacy controls wired in ──
 //
 // `data-pug-no-capture` (in index.html) needs no config — the click and
-// dead-click trackers consult it automatically. `sanitizeUrl` is opt-in here.
+// dead-click trackers consult it automatically. `beforeSend` is opt-in here.
 window.pug.init('privacy-example', {
   apiKey: 'demo-api-key', // required by init(); unused here since dryRun never delivers
   dryRun: true, // demo only — never deliver
-  sanitizeUrl: maskUrl,
+  beforeSend: event => {
+    event.autoProperties.$url = maskUrl(event.autoProperties.$url)
+    event.autoProperties.$referrer = maskUrl(event.autoProperties.$referrer)
+    // A form's action is a custom property, not an auto one.
+    if (event.kind === 'form_submit') {
+      event.customProperties.action = maskUrl(event.customProperties.action)
+    }
+    return event
+  },
 })
 
 // ── Visualization (mirrors the functions above; not part of the SDK) ──

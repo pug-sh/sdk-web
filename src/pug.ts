@@ -31,7 +31,8 @@ import {
   type SessionConfig,
 } from './session.js'
 import {
-  configureUrlSanitizer,
+  type BeforeSendFn,
+  configureBeforeSend,
   type EventIdentity,
   type JsonValue,
   type TrackFn,
@@ -99,14 +100,17 @@ export interface InitOptions {
    */
   readonly crossSubdomainTracking?: CrossSubdomainConfig
   /**
-   * Transforms `$url` and `$referrer` (on every event) and a form's `action` (on submit) before
-   * they leave the device — e.g. to strip PII-bearing query params or mask path segments
-   * (`/orders/12345` → `/orders/:orderId`). Called synchronously on the `track()` hot path, so keep
-   * it cheap and side-effect-free. If it throws or returns a non-string the URL is dropped to an
-   * empty string rather than sent raw. Note: this covers URL fields only — `$utm*` params are parsed
-   * from the raw query string and are not routed through it, so avoid putting PII in UTM params.
+   * Redacts, rewrites or drops each event before it is sent. Mutate `autoProperties` /
+   * `customProperties` in place and return the event, `null` to drop it, or nothing at all.
+   * `$url`, `$referrer` and a form's `action` arrive raw — masking them is this hook's job.
+   *
+   * Runs synchronously on every event, so keep it cheap. Fails closed: a throw, a malformed return
+   * or a non-function value drops the event (or every event) rather than sending it unredacted.
+   * `$projectId`/`$platform`/`$sdkVersion` are re-asserted afterwards; `sessionId`/`distinctId` are
+   * not exposed. Unavailable on the one-tag install — `data-options` is JSON, which holds no
+   * functions.
    */
-  readonly sanitizeUrl?: (url: string) => string
+  readonly beforeSend?: BeforeSendFn
 }
 
 export type {
@@ -199,7 +203,12 @@ export const init = (projectId: string, options: InitOptions) => {
     log.warn('Failed to initialize user agent data:', err)
   }
 
-  configureUrlSanitizer(options.sanitizeUrl)
+  // No compiler protects a JS or one-tag install, and a silently ignored sanitizer means URLs the
+  // integrator believes are masked start going out raw.
+  if ('sanitizeUrl' in options) {
+    log.warn('sanitizeUrl was removed and is ignored; URLs are now sent raw. Use beforeSend instead.')
+  }
+  configureBeforeSend(options.beforeSend)
 
   const transport = createBatchedTransport(config.endpoint, options.apiKey, projectId, options.batch)
   const autoCapture = createAutoCaptureController(track, trackingConsent.isTracking)
@@ -487,7 +496,7 @@ export const destroy = () => {
 
   destroySession()
   destroyProfile()
-  configureUrlSanitizer(undefined)
+  configureBeforeSend(undefined)
   setDebugLogging(false)
 
   cookielessIdentifyWarned = false
@@ -662,7 +671,7 @@ export const track: TrackFn = (kind: string, props?: Record<string, unknown>, op
     const immediate = opts?.immediate ?? false
     const event = toEvent(state.config.projectId, kind, identity, props, opts)
     if (!event) {
-      // error already logged by toEvent
+      // toEvent logged the reason (error, or debug for a beforeSend drop)
       return
     }
     if (state.dryRun) {

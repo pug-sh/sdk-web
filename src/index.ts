@@ -24,6 +24,8 @@ export {
 } from './pug.js'
 export { rotate, type SessionConfig } from './session.js'
 export {
+  type BeforeSendEvent,
+  type BeforeSendFn,
   type PropValue,
   type TrackEventProps,
   type TrackFn,

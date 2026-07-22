@@ -155,7 +155,7 @@ optOutTracking()
 | `autoCapture` | `boolean \| AutoCaptureSelection` | `true` | Controls SDK-owned automatic listeners. `false` disables all automatic capture; an object is an **allowlist** enabling only the keys set to `true`, with every omitted key off. |
 | `trackingConsent` | `'granted' \| 'cookieless' \| 'denied' \| TrackingConsentConfig` | `'granted'` | Initial consent. While denied, automatic listeners stay off and `track()` / `identify()` are ignored; `'cookieless'` keeps events flowing without identity. Object form: `initial` seeds the state used until the user answers, `onReject` sets what `optOutTracking()` applies (`'denied'` by default, or `'cookieless'`), `persist: true` remembers the choice across reloads, `respectGpc: true` honors the browser's [Global Privacy Control](#global-privacy-control) signal. |
 | `crossSubdomainTracking` | `boolean \| { domain?: string, maxAgeDays?: number }` | `false` | **Off by default** — sharing identity across subdomains weakens browser isolation from same-origin to same-site, so it is an explicit opt-in. `false` keeps persistence origin-scoped in `localStorage`; `true` shares identity (anonymous ID, external ID, session, consent) across subdomains via a first-party cookie on the auto-discovered registrable domain, `{ domain }` pins that cookie domain explicitly, and `{ maxAgeDays }` sets the cookie lifetime (default 365). See [Cross-subdomain tracking](#cross-subdomain-tracking) for fallback behavior and the multi-tenant caveat. |
-| `sanitizeUrl` | `(url: string) => string` | — | Rewrites outgoing URLs (`$url`, `$referrer`, form actions) before they're sent — e.g. to mask IDs or strip PII. See [Privacy controls](#privacy-controls). |
+| `beforeSend` | `(event) => event \| null \| void` | — | Redact, rewrite or drop any event before it's sent — mask URLs, strip PII from properties. See [Privacy controls](#privacy-controls). |
 
 #### Cross-subdomain tracking
 
@@ -201,8 +201,8 @@ identity. With `persist: false` (the default) no value is stored — `init()` st
 immediately deletes a capability probe to check whether storage is usable at all.
 
 Events themselves are unchanged. A cookieless event carries the same automatic properties as any
-other: page URL and referrer, page title, screen dimensions, locale, and user-agent client hints.
-Only the identity fields are dropped.
+other: page URL and referrer, screen dimensions, locale, and user-agent client hints (plus the page
+title, on `page_view` only). Only the identity fields are dropped.
 
 **What this settles, and what it doesn't.** Nothing identifying is stored on the device, and the id
 the server derives cannot be reversed into one. It is an HMAC-SHA256 over the project, the
@@ -350,27 +350,60 @@ Add the `data-pug-no-capture` attribute to any element whose text should not be 
 
 Only free text is redacted; `id` and `class` are still sent, so keep PII out of those as well.
 
-#### `sanitizeUrl` — mask routes and strip PII from URLs
+#### `beforeSend` — redact, rewrite or drop any event
 
-Pass a `sanitizeUrl` function to `init()` to rewrite `$url`, `$referrer`, and captured form actions before they are sent. The SDK can't know your routes, so the rules live in your app:
+`beforeSend` receives every property the SDK is about to send, as plain JavaScript values, and returns what should actually go out:
 
 ```ts
 init('your-project-id', {
   apiKey: 'your-api-key',
-  sanitizeUrl: (url) => {
-    const u = new URL(url, window.location.origin)
-    u.pathname = u.pathname.replace(/\/orders\/\d+/, '/orders/:orderId') // mask IDs
-    u.searchParams.delete('email') // strip PII params
-    return u.toString()
+  beforeSend: (event) => {
+    if (event.kind === 'internal_health_check') return null // drop it
+
+    delete event.customProperties.ssn
+    delete event.autoProperties.$utmContent
+    event.autoProperties.$locale = 'REDACTED'
+    return event
   },
 })
 ```
 
-- Runs synchronously on every event — keep it cheap and side-effect-free.
-- **Fails closed:** if it throws or returns a non-string, the URL is dropped to an empty string rather than sent raw, so a bug in your sanitizer can't leak the PII it was meant to strip.
-- Covers URL fields only. `$utm*` params are parsed from the raw query string separately, so don't put PII in UTM parameters.
+`event` is `{ kind, autoProperties, customProperties }`. `kind` is read-only, and so are the two bags themselves — mutate their contents in place (assign, or `delete` to remove a property) rather than replacing a bag wholesale.
 
-A runnable demo of both controls lives in [`examples/privacy/`](./examples/privacy/).
+- Return the event to send it, `null` to drop it, or nothing at all if you only mutated in place.
+- `autoProperties` values are always strings. `customProperties` values are whatever you passed to `track()`, so narrow with `typeof` before using one as a string.
+- `$projectId`, `$platform` and `$sdkVersion` are re-asserted after your hook — the backend keys on `$projectId` and cannot re-derive the other two, so removing them has no effect.
+- `sessionId` and `distinctId` are not exposed. They're top-level fields on the event, already gated by [tracking consent](#tracking-consent-api); use `cookieless` mode or `optOutTracking()` to suppress them.
+- Runs synchronously on every event — keep it cheap and side-effect-free.
+- **Fails closed:** if it throws or returns something malformed, the whole event is dropped rather than sent unredacted, and the SDK warns once per failure kind. When it throws, only the error's type is logged, never its message, so a hook that interpolates the value it was redacting can't re-surface it in the console.
+- Not available on the one-tag install: `data-options` is JSON, which can't carry a function. Passing a non-function `beforeSend` there drops **every** event. Use the [loader snippet](#script-tag-cdn) with a queued `init` call, or the npm package.
+
+Masking URLs is the common case. `$url` and `$referrer` are auto-properties, and a form's `action` is a custom property on `form_submit`:
+
+```ts
+const maskUrl = (url: string) => {
+  if (!url) return url // '' is a referrer-less page view — resolving it would fabricate a self-referral
+  const u = new URL(url, window.location.origin)
+  u.pathname = u.pathname.replace(/\/orders\/\d+/, '/orders/:orderId') // mask IDs
+  u.searchParams.delete('email') // strip PII params
+  return u.toString()
+}
+
+init('your-project-id', {
+  apiKey: 'your-api-key',
+  beforeSend: (event) => {
+    event.autoProperties.$url = maskUrl(event.autoProperties.$url)
+    event.autoProperties.$referrer = maskUrl(event.autoProperties.$referrer)
+    const action = event.customProperties.action
+    if (event.kind === 'form_submit' && typeof action === 'string') {
+      event.customProperties.action = maskUrl(action)
+    }
+    return event
+  },
+})
+```
+
+A runnable demo of these controls lives in [`examples/privacy/`](./examples/privacy/).
 
 ### API
 
@@ -468,9 +501,34 @@ See **[WELL_KNOWN_EVENTS.md](./WELL_KNOWN_EVENTS.md)** for the full list — eac
 
 ## Upgrading
 
-### Unreleased — type-only breaking changes
+### Unreleased — breaking changes
 
-One **runtime** change affects every install, including JavaScript and one-tag: the `click` and `dead_click` `text` property is now the clicked element's own text rather than its whole subtree (see [Privacy controls](#privacy-controls)). Text captured from wrapper elements gets shorter and stops carrying nested content; nothing else about the events changes.
+Three **runtime** changes affect every install, including JavaScript and one-tag:
+
+- The `click` and `dead_click` `text` property is now the clicked element's own text rather than its whole subtree (see [Privacy controls](#privacy-controls)). Text captured from wrapper elements gets shorter and stops carrying nested content; nothing else about the events changes.
+- `$pageTitle` is sent on `page_view` only, not on every event. It used to ride every click, scroll, form and frustration event; titles routinely carry names and order numbers, and the title is still joinable to later events through `sessionId`.
+- **`sanitizeUrl` is removed**, replaced by [`beforeSend`](#privacy-controls), which reaches every property rather than URL fields only. TypeScript consumers get a compile error. **JavaScript and one-tag installs do not** — the option is accepted, ignored, and `$url` / `$referrer` / `form.action` start going out unmasked, so `init()` logs a warning when it sees the stale key. Migrate:
+
+```ts
+// Before
+init('p', { apiKey: 'k', sanitizeUrl: maskUrl })
+
+// After — note `action` on form_submit, which sanitizeUrl used to cover for you
+init('p', {
+  apiKey: 'k',
+  beforeSend: (event) => {
+    event.autoProperties.$url = maskUrl(event.autoProperties.$url)
+    event.autoProperties.$referrer = maskUrl(event.autoProperties.$referrer)
+    const action = event.customProperties.action
+    if (event.kind === 'form_submit' && typeof action === 'string') {
+      event.customProperties.action = maskUrl(action)
+    }
+    return event
+  },
+})
+```
+
+Two differences from `sanitizeUrl` to carry over into `maskUrl` itself. It no longer skips `''`, so a base-relative masker would resolve a referrer-less page view into a fabricated self-referral — guard with `if (!url) return url`. And `customProperties` values are typed as the caller's own, so narrow with `typeof` before treating one as a string, as above.
 
 The rest are **compile-time** breaks for TypeScript consumers only.
 
@@ -481,6 +539,7 @@ The rest are **compile-time** breaks for TypeScript consumers only.
 | `getTrackingConsent()` returns `TrackingConsent \| undefined` | Code assuming a non-optional return under `strictNullChecks` | Handle `undefined`, which means "called before `init()`" |
 | `TrackingConsent` has a third member, `'cookieless'` | Exhaustive `switch`es and `Record<TrackingConsent, …>` maps stop compiling | Handle `'cookieless'` — events flow without identity |
 | `optOutTracking()` applies `trackingConsent.onReject` | Nothing by default (`onReject` defaults to `'denied'`) | Opt in with `onReject: 'cookieless'` to keep identity-free counts after a rejection; `setTrackingConsent('denied')` is unaffected |
+| `sanitizeUrl` removed | `init(p, { sanitizeUrl })` no longer typechecks. JS/one-tag installs get no error — just a warning and raw URLs | Use `beforeSend` — see the migration above |
 | `TrackingConsentConfig.default` renamed to `initial` | `init(p, { trackingConsent: { default: … } })` | Rename the key. `default` is a reserved word, so `const { default } = cfg` was a SyntaxError; `initial` destructures normally. A stale key now warns and **fails closed to `'denied'`** rather than silently seeding `'granted'` — including in `data-options` JSON, which no compiler checks |
 
 The `track()` change also surfaced an int64 issue that the old permissive overload had been hiding: `sizeBytes` on the file, export and chat-attachment events is a `bigint`, so pass `1024n` rather than `1024`. It never encoded correctly as a plain number — the overload just made it compile.

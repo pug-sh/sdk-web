@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { configureUrlSanitizer, sanitizeUrlValue, toEvent } from './track.js'
+import { configureBeforeSend, toEvent } from './track.js'
 
 const PROJECT_ID = 'test-project'
 const SESSION_ID = '01234567-0123-7123-8123-012345678901'
@@ -344,6 +344,41 @@ describe('Event proto integrity', () => {
     expect(ev!.autoProperties.$sdkVersion).toBeTruthy()
   })
 
+  // Both directions pinned — asserting only the omission would pass if $pageTitle were dropped
+  // entirely.
+  describe('$pageTitle is page-view only', () => {
+    beforeEach(() => {
+      document.title = 'Invoice #4417 — Dana Okonkwo'
+    })
+
+    it('sends $pageTitle on page_view', () => {
+      const ev = toEvent(PROJECT_ID, 'page_view', { sessionId: SESSION_ID, distinctId: DISTINCT_ID })
+      expect(ev!.autoProperties.$pageTitle?.value.value).toBe('Invoice #4417 — Dana Okonkwo')
+    })
+
+    // Every kind an automatic tracker emits, plus a custom one.
+    it.each([
+      'click',
+      'scroll',
+      'form_start',
+      'form_submit',
+      'rage_click',
+      'dead_click',
+      'my_event',
+    ])('omits $pageTitle on %s', kind => {
+      const ev = toEvent(PROJECT_ID, kind, { sessionId: SESSION_ID, distinctId: DISTINCT_ID })
+      expect(ev!.autoProperties.$pageTitle).toBeUndefined()
+    })
+
+    // The conditional spread must not swallow its siblings.
+    it('still sends the other auto-properties on a non-page_view event', () => {
+      const ev = toEvent(PROJECT_ID, 'click', { sessionId: SESSION_ID, distinctId: DISTINCT_ID })
+      expect(ev!.autoProperties.$projectId.value.value).toBe(PROJECT_ID)
+      expect(ev!.autoProperties.$platform.value.value).toBe('web')
+      expect(ev!.autoProperties.$sdkVersion).toBeTruthy()
+    })
+  })
+
   // The backend promotes $platform into a dedicated events column and never derives it from the UA
   // header, so an omitted or non-"web" value silently empties every platform breakdown/filter.
   it('sets $platform to "web"', () => {
@@ -357,85 +392,6 @@ describe('Event proto integrity', () => {
     expect(ev!.distinctId).toBe(DISTINCT_ID)
     expect(ev!.customProperties.sessionId).toBeUndefined()
     expect(ev!.customProperties.distinctId).toBeUndefined()
-  })
-})
-
-describe('URL sanitizer', () => {
-  const setReferrer = (value: string) => {
-    Object.defineProperty(document, 'referrer', { configurable: true, get: () => value })
-  }
-
-  afterEach(() => {
-    configureUrlSanitizer(undefined)
-    setReferrer('') // clear any per-test referrer stub (jsdom default is '')
-  })
-
-  it('returns the raw URL when no sanitizer is configured', () => {
-    expect(sanitizeUrlValue('https://x.com/orders/12345')).toBe('https://x.com/orders/12345')
-  })
-
-  it('applies the configured sanitizer (e.g. route masking)', () => {
-    configureUrlSanitizer(url => url.replace(/\/orders\/\d+/, '/orders/:orderId'))
-    expect(sanitizeUrlValue('https://x.com/orders/12345?ref=a')).toBe('https://x.com/orders/:orderId?ref=a')
-  })
-
-  it('fails closed (empty string, not raw) when the sanitizer throws', () => {
-    configureUrlSanitizer(() => {
-      throw new Error('boom')
-    })
-    expect(sanitizeUrlValue('https://x.com/secret?email=a@b.com')).toBe('')
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('sanitizeUrl threw'), expect.anything())
-  })
-
-  it('fails closed when the sanitizer returns a non-string', () => {
-    // @ts-expect-error intentionally returning a non-string to exercise the guard
-    configureUrlSanitizer(() => 42)
-    expect(sanitizeUrlValue('https://x.com/secret')).toBe('')
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('non-string'))
-  })
-
-  it('fails closed (drops URLs, does not send raw) when configured with a non-function', () => {
-    // @ts-expect-error intentionally passing a non-function
-    configureUrlSanitizer('not a function')
-    expect(sanitizeUrlValue('https://x.com/raw')).toBe('')
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be a function'))
-  })
-
-  it('returns an empty string unchanged without invoking the sanitizer', () => {
-    const sanitizer = vi.fn((u: string) => `masked:${u}`)
-    configureUrlSanitizer(sanitizer)
-    expect(sanitizeUrlValue('')).toBe('')
-    expect(sanitizer).not.toHaveBeenCalled()
-  })
-
-  it('does not log the raw URL when the sanitizer throws with it embedded', () => {
-    configureUrlSanitizer(u => {
-      throw new Error(`bad url: ${u}`)
-    })
-    expect(sanitizeUrlValue('https://x.com/secret?email=a@b.com')).toBe('')
-    // Only the error *type* is logged — never a message that could re-surface the URL.
-    for (const call of warnSpy.mock.calls) {
-      for (const arg of call) {
-        expect(String(arg)).not.toContain('secret')
-        expect(String(arg)).not.toContain('a@b.com')
-      }
-    }
-  })
-
-  it('applies the sanitizer to $url and $referrer auto-properties', () => {
-    setReferrer('https://external.example/landing')
-    configureUrlSanitizer(() => 'REDACTED')
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID })
-    expect(ev!.autoProperties.$url.value.value).toBe('REDACTED')
-    expect(ev!.autoProperties.$referrer.value.value).toBe('REDACTED')
-  })
-
-  it('leaves a referrer-less $referrer empty instead of fabricating a URL', () => {
-    setReferrer('')
-    configureUrlSanitizer(u => `masked:${u || 'ORIGIN'}`)
-    const ev = toEvent(PROJECT_ID, 'my_event', { sessionId: SESSION_ID, distinctId: DISTINCT_ID })
-    // Empty referrer short-circuits — no 'masked:ORIGIN' fabricated.
-    expect(ev!.autoProperties.$referrer.value.value).toBe('')
   })
 })
 
@@ -453,5 +409,199 @@ describe('toEvent cookieless identity', () => {
     expect(event?.cookieless).toBe(false)
     expect(event?.sessionId).toBe('s-1')
     expect(event?.distinctId).toBe('anon-1')
+  })
+})
+
+describe('beforeSend', () => {
+  const ID = { sessionId: SESSION_ID, distinctId: DISTINCT_ID }
+  const str = (pv: { value: { value: unknown } } | undefined) => pv?.value.value
+
+  afterEach(() => {
+    configureBeforeSend(undefined)
+  })
+
+  it('is a no-op when unconfigured', () => {
+    const ev = toEvent(PROJECT_ID, 'my_event', ID, { a: 1 })
+    expect(str(ev!.customProperties.a)).toBe(1n)
+    expect(str(ev!.autoProperties.$projectId)).toBe(PROJECT_ID)
+  })
+
+  it('rewrites an auto-property', () => {
+    document.title = 'Invoice #4417 — Dana Okonkwo'
+    configureBeforeSend(e => {
+      e.autoProperties.$pageTitle = 'REDACTED'
+      return e
+    })
+    const ev = toEvent(PROJECT_ID, 'page_view', ID)
+    expect(str(ev!.autoProperties.$pageTitle)).toBe('REDACTED')
+  })
+
+  it('rewrites, adds and deletes custom properties', () => {
+    configureBeforeSend(e => {
+      delete e.customProperties.ssn
+      e.customProperties.email = 'redacted@example.com'
+      e.customProperties.tier = 'gold'
+      return e
+    })
+    const ev = toEvent(PROJECT_ID, 'signup', ID, { ssn: '123-45-6789', email: 'dana@x.com' })
+    expect(ev!.customProperties.ssn).toBeUndefined()
+    expect(str(ev!.customProperties.email)).toBe('redacted@example.com')
+    expect(str(ev!.customProperties.tier)).toBe('gold')
+  })
+
+  // The mutable bags invite `e => { e.x = y }` with no return; that must not read as a drop.
+  it('keeps in-place mutations when the hook returns nothing', () => {
+    configureBeforeSend(e => {
+      e.customProperties.masked = true
+    })
+    const ev = toEvent(PROJECT_ID, 'my_event', ID, { a: 1 })
+    expect(ev).not.toBeNull()
+    expect(str(ev!.customProperties.masked)).toBe(true)
+    expect(str(ev!.customProperties.a)).toBe(1n)
+  })
+
+  it('drops the event on null, at debug level (an intentional drop is not a warning)', () => {
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    configureBeforeSend(e => (e.kind === 'internal_ping' ? null : e))
+    expect(toEvent(PROJECT_ID, 'internal_ping', ID)).toBeNull()
+    expect(toEvent(PROJECT_ID, 'my_event', ID)).not.toBeNull()
+    expect(warnSpy).not.toHaveBeenCalled()
+    debugSpy.mockRestore()
+  })
+
+  // The bag the hook receives must be the one we send from. Rebuilding it from the arguments meant
+  // a hook that replaced a bag and returned nothing had its redaction dropped and the raw original
+  // sent — the one failure direction a privacy hook must never have.
+  it('honors a replaced bag when the hook returns nothing', () => {
+    configureBeforeSend(e => {
+      ;(e as { autoProperties: Record<string, string> }).autoProperties = {
+        ...e.autoProperties,
+        $url: 'REDACTED',
+      }
+      ;(e as { customProperties: Record<string, unknown> }).customProperties = {}
+    })
+    const ev = toEvent(PROJECT_ID, 'my_event', ID, { ssn: '123-45-6789' })
+    expect(str(ev!.autoProperties.$url)).toBe('REDACTED')
+    expect(ev!.customProperties.ssn).toBeUndefined()
+  })
+
+  it('cannot reroute the event: kind is readonly and re-reading it after mutation is unsupported', () => {
+    configureBeforeSend(e => {
+      ;(e as { kind: string }).kind = 'spoofed'
+      return e
+    })
+    const ev = toEvent(PROJECT_ID, 'my_event', ID)
+    expect(ev!.kind).toBe('my_event')
+  })
+
+  describe('protected auto-properties survive the hook', () => {
+    it.each(['$projectId', '$platform', '$sdkVersion'])('re-asserts %s after a hook deletes it', key => {
+      configureBeforeSend(e => {
+        delete e.autoProperties[key]
+        return e
+      })
+      const ev = toEvent(PROJECT_ID, 'my_event', ID)
+      expect(ev!.autoProperties[key]).toBeDefined()
+    })
+
+    it('re-asserts them after a hook overwrites them', () => {
+      configureBeforeSend(e => {
+        e.autoProperties.$projectId = 'other-project'
+        e.autoProperties.$platform = 'ios'
+        return e
+      })
+      const ev = toEvent(PROJECT_ID, 'my_event', ID)
+      expect(str(ev!.autoProperties.$projectId)).toBe(PROJECT_ID)
+      expect(str(ev!.autoProperties.$platform)).toBe('web')
+    })
+
+    it('survives a hook returning a wholly empty event', () => {
+      configureBeforeSend(() => ({ kind: 'my_event', autoProperties: {}, customProperties: {} }))
+      const ev = toEvent(PROJECT_ID, 'my_event', ID, { a: 1 })
+      expect(str(ev!.autoProperties.$projectId)).toBe(PROJECT_ID)
+      expect(str(ev!.autoProperties.$sdkVersion)).toBeTruthy()
+      expect(ev!.customProperties.a).toBeUndefined()
+    })
+  })
+
+  describe('fails closed', () => {
+    it('drops the event when the hook throws, without leaking the error message', () => {
+      configureBeforeSend(() => {
+        throw new Error('dana@example.com was being redacted')
+      })
+      expect(toEvent(PROJECT_ID, 'my_event', ID)).toBeNull()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('beforeSend threw'), 'Error')
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('dana@example.com'), expect.anything())
+    })
+
+    it.each([42, 'nope', [] as unknown, { autoProperties: {} }])('drops the event on malformed return %p', bad => {
+      configureBeforeSend(() => bad as never)
+      expect(toEvent(PROJECT_ID, 'my_event', ID)).toBeNull()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('malformed event'))
+    })
+
+    // These pass a `typeof v === 'object'` check but yield nothing from Object.entries, so a laxer
+    // guard sent a hollowed-out event — every property gone — with no warning at all.
+    it.each([
+      ['array bags', { autoProperties: [], customProperties: [] }],
+      ['Map bags', { autoProperties: new Map([['$url', 'x']]), customProperties: new Map() }],
+    ])('drops the event when the hook returns %s', (_label, bad) => {
+      configureBeforeSend(() => bad as never)
+      expect(toEvent(PROJECT_ID, 'my_event', ID)).toBeNull()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('malformed event'))
+    })
+
+    it('drops every event when configured with a non-function', () => {
+      configureBeforeSend('not a function' as never)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('beforeSend must be a function'))
+      expect(toEvent(PROJECT_ID, 'my_event', ID)).toBeNull()
+    })
+
+    it('warns once per configure, not once per event', () => {
+      configureBeforeSend(() => {
+        throw new Error('boom')
+      })
+      toEvent(PROJECT_ID, 'my_event', ID)
+      toEvent(PROJECT_ID, 'my_event', ID)
+      toEvent(PROJECT_ID, 'my_event', ID)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+    })
+
+    // Separate flags: sharing one meant a throw at page load silenced every later malformed return
+    // for the life of the page, and vice versa.
+    it('warns for a malformed return even after a throw already warned', () => {
+      let mode: 'throw' | 'malformed' = 'throw'
+      configureBeforeSend(() => {
+        if (mode === 'throw') {
+          throw new Error('boom')
+        }
+        return 42 as never
+      })
+      toEvent(PROJECT_ID, 'my_event', ID)
+      mode = 'malformed'
+      toEvent(PROJECT_ID, 'my_event', ID)
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('beforeSend threw'), 'Error')
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('malformed event'))
+    })
+  })
+
+  // The only route to URL masking now that sanitizeUrl is gone.
+  it('can mask $url and $referrer', () => {
+    configureBeforeSend(e => {
+      e.autoProperties.$url = (e.autoProperties.$url as string).replace(/\/orders\/\d+/, '/orders/:id')
+      return e
+    })
+    window.history.replaceState({}, '', '/orders/12345?q=1')
+    const ev = toEvent(PROJECT_ID, 'my_event', ID)
+    expect(str(ev!.autoProperties.$url)).toContain('/orders/:id')
+    expect(str(ev!.autoProperties.$url)).not.toContain('12345')
+  })
+
+  it('is cleared by configureBeforeSend(undefined)', () => {
+    configureBeforeSend(() => null)
+    expect(toEvent(PROJECT_ID, 'my_event', ID)).toBeNull()
+    configureBeforeSend(undefined)
+    expect(toEvent(PROJECT_ID, 'my_event', ID)).not.toBeNull()
   })
 })
