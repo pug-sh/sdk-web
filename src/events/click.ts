@@ -1,7 +1,9 @@
 import type { TrackFn, WellKnownEventName } from '../track.js'
-import { isCaptureSuppressed } from '../utils.js'
+import { getSafeElementText } from '../utils.js'
 
 export const eventClick = 'click' satisfies WellKnownEventName
+
+const MAX_TEXT_LENGTH = 50
 
 export const setupClickTracking = (track: TrackFn) => {
   const onClick = (event: MouseEvent) => {
@@ -13,8 +15,8 @@ export const setupClickTracking = (track: TrackFn) => {
       class: target.getAttribute('class') ?? '',
       id: target.id,
       tag: target.tagName,
-      // Redact text the integrator marked sensitive; keep the structural fields so the click still counts.
-      text: isCaptureSuppressed(target) ? '' : (target.innerText?.substring(0, 50) ?? ''),
+      // Own text only; structural fields still send so the click keeps counting.
+      text: getSafeElementText(target, MAX_TEXT_LENGTH),
       x: event.clientX,
       y: event.clientY,
     })
