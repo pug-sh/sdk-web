@@ -9,8 +9,17 @@ import { log } from './logger.js'
  * - `{ domain }` — pin an explicit cookie domain, e.g. to scope narrower than the registrable
  *   domain (`app.acme.com` instead of `.acme.com`) or to a tenant slug on a multi-tenant platform.
  *   Falls back to a host-only cookie with a warning when the browser rejects the domain.
+ * - `{ maxAgeDays }` — cookie lifetime, default 365. Omit `domain` to keep auto-discovery.
  */
-export type CrossSubdomainConfig = boolean | { readonly domain: string }
+/** Cookie lifetime in days, default 365. Refreshed on every write, so it runs from last visit. */
+type MaxAgeDays = number
+
+// Split so at least one field is required: `{}` would otherwise opt into cross-subdomain identity
+// without stating it, which a config builder spreading unset optionals produces by accident.
+export type CrossSubdomainConfig =
+  | boolean
+  | { readonly domain: string; readonly maxAgeDays?: MaxAgeDays }
+  | { readonly domain?: string; readonly maxAgeDays: MaxAgeDays }
 
 /** Minimal document surface the cookie layer needs — injectable so tests can target other origins. */
 export interface CookieDocument {
@@ -28,7 +37,31 @@ export interface CookieLayer {
   readonly crossSubdomain: boolean
 }
 
-const COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60
+const SECONDS_PER_DAY = 24 * 60 * 60
+
+const DEFAULT_COOKIE_MAX_AGE_DAYS = 365
+
+/** Chromium silently shortens anything past this. */
+const BROWSER_MAX_AGE_CAP_DAYS = 400
+
+// Untrusted: the one-tag install feeds this from `data-options` JSON.
+const resolveMaxAgeSeconds = (maxAgeDays: unknown): number => {
+  if (maxAgeDays === undefined) {
+    return DEFAULT_COOKIE_MAX_AGE_DAYS * SECONDS_PER_DAY
+  }
+  if (typeof maxAgeDays !== 'number' || !Number.isFinite(maxAgeDays) || maxAgeDays <= 0) {
+    log.warn(
+      `crossSubdomainTracking.maxAgeDays ${JSON.stringify(maxAgeDays)} must be a number greater than 0; using the ${DEFAULT_COOKIE_MAX_AGE_DAYS}-day default.`,
+    )
+    return DEFAULT_COOKIE_MAX_AGE_DAYS * SECONDS_PER_DAY
+  }
+  if (maxAgeDays > BROWSER_MAX_AGE_CAP_DAYS) {
+    log.warn(
+      `crossSubdomainTracking.maxAgeDays ${maxAgeDays} exceeds the ${BROWSER_MAX_AGE_CAP_DAYS}-day cap Chromium enforces; the browser will shorten it.`,
+    )
+  }
+  return Math.round(maxAgeDays * SECONDS_PER_DAY)
+}
 
 /** Browsers cap a cookie (name + value + attributes) around 4096 bytes; refuse oversized writes early. */
 const MAX_COOKIE_LENGTH = 3800
@@ -135,10 +168,16 @@ export const createCookieLayer = (
     return null
   }
 
+  const options: { readonly domain?: string; readonly maxAgeDays?: MaxAgeDays } =
+    typeof config === 'object' ? config : {}
+  const maxAgeSeconds = resolveMaxAgeSeconds(options.maxAgeDays)
+  const explicitDomain = options.domain
+
   const hostname = doc.location.hostname
   let domain = ''
-  if (typeof config === 'object') {
-    domain = resolveExplicitDomain(doc, config.domain)
+  // An object without `domain` still auto-discovers — it is the `{ maxAgeDays }`-only form.
+  if (explicitDomain !== undefined) {
+    domain = resolveExplicitDomain(doc, explicitDomain)
   } else if (hostname && hostname !== 'localhost' && !isIpAddress(hostname)) {
     // Multi-tenant PaaS hosts (herokuapp.com, vercel.app, …) need no special-casing: their shared
     // suffix is a public suffix the browser rejects, so the widest-first probe lands on the
@@ -156,7 +195,7 @@ export const createCookieLayer = (
     try {
       // encodeURIComponent stays inside the try — it throws on malformed UTF-16 (lone surrogates),
       // and callers must never throw.
-      const encoded = `${encodeURIComponent(key)}=${encodeURIComponent(value)}${attrs}; max-age=${COOKIE_MAX_AGE_SECONDS}`
+      const encoded = `${encodeURIComponent(key)}=${encodeURIComponent(value)}${attrs}; max-age=${maxAgeSeconds}`
       if (encoded.length > MAX_COOKIE_LENGTH) {
         log.warn(`Cookie for "${key}" would exceed ${MAX_COOKIE_LENGTH} chars; skipping cookie write.`)
         return false
@@ -197,7 +236,7 @@ export const createCookieLayer = (
       // twin rather than leave the value gone entirely — cross-subdomain reads don't fall back to
       // localStorage, and the next page load will retry the promotion.
       if (!writeCookie(key, before)) {
-        doc.cookie = `${encodeURIComponent(key)}=${encodeURIComponent(before)}; path=/; max-age=${COOKIE_MAX_AGE_SECONDS}`
+        doc.cookie = `${encodeURIComponent(key)}=${encodeURIComponent(before)}; path=/; max-age=${maxAgeSeconds}`
       }
     } catch (err) {
       // Sandboxed frame or malformed key — nothing to reconcile; reads fall through to what exists.
