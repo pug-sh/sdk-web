@@ -11,4 +11,4 @@ Then open the example URL.
 
 | Example | URL | Shows |
 | --- | --- | --- |
-| [`privacy/`](./privacy/) | http://localhost:3000/examples/privacy/ | `data-pug-no-capture` text redaction and the `sanitizeUrl` hook (route masking + PII query-param stripping) |
+| [`privacy/`](./privacy/) | http://localhost:3000/examples/privacy/ | `data-pug-no-capture` text redaction and the `beforeSend` hook (route masking + PII query-param stripping) |

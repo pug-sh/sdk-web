@@ -14,6 +14,12 @@ Publishing is manual. A release ships **two** things:
 
 ## Each release
 
+0. **Clear the proto pin**: `make check-proto-pin`. This must pass before anything else. It re-downloads the pinned BSR commit and diffs it against the committed `proto/` mirror, proving nothing is hand-patched ahead of the pin. `npm publish` runs it via `prepublishOnly`, so a release cannot skip it.
+
+   It **fails today by design**: `proto/sdk/events/v1/events.proto` carries the cookieless contract (`Event.cookieless`, validation restructure) ahead of the BSR, from the pug repo branch `feat/cookieless-identity`. To clear it: merge that branch, `make proto-latest`, bump `PROTO_COMMIT` in the `Makefile`, then `make sync-protos && make protos` and commit the (expected-empty) diff.
+
+   No other check catches this. CI runs `make protos` against the *committed* mirror, so a hand-patched `proto/` regenerates consistently and `make check-codegen` stays green — only a fresh BSR download can tell, which is why this step needs network access and lives here rather than in CI.
+
 1. **Bump the version** in `package.json` (semver; pre-1.0 minors may break).
 2. **Update the pinned snippet URLs** in `README.md` (`cdn.pugs.dev/vX.Y.Z/pug.min.js`) — enforced: the test suite fails if any pinned URL differs from `package.json`'s version. While pre-1.0 the documented snippet pins exact versions; at 1.0 switch the docs to a rolling major alias (`cdn.pugs.dev/v1/…`) and this step mostly goes away.
 3. **Build**: `bun run build`. The `prebuild` hook stamps `src/version.ts`, tsc compiles `dist/`, and `scripts/build-cdn.mjs` bundles `dist/cdn/pug.min.js`, printing its size and SRI hash — **record the SRI line** for the release notes. The build fails if the bundle exceeds the gzip budget (`GZIP_BUDGET_KB` in `scripts/build-cdn.mjs`, 45).

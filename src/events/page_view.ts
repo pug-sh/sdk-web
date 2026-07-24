@@ -1,7 +1,5 @@
 import { log } from '../logger.js'
-import type { TrackFn, WellKnownEventName } from '../track.js'
-
-export const eventPageView = 'page_view' satisfies WellKnownEventName
+import { eventPageView, type TrackFn } from '../track.js'
 
 // Stored at module level so they survive across init/destroy cycles. This enables
 // restoring the original methods on destroy and reactivating orphaned wrappers on

@@ -52,8 +52,8 @@
         if (w.pug) { if (!w.pug._q) console.warn('[Pug SDK] window.pug already defined by another script; not loaded.'); return; }
         var q = [];
         var pug = (w.pug = { _q: q, _v: 1 });
-        var methods = ('init track identify reset destroy setAutoCapture optInTracking optOutTracking ' +
-          'isTrackingEnabled getTrackingConsent rotate ready').split(' ');
+        var methods = ('init track identify reset destroy setAutoCapture setTrackingConsent optInTracking ' +
+          'optOutTracking isTrackingEnabled getTrackingConsent isConsentPending rotate ready').split(' ');
         methods.forEach(function (m) {
           pug[m] = function () { if (q.length < 1000) q.push([m, [].slice.call(arguments)]); };
         });
@@ -68,7 +68,7 @@
       pug.init('cdn-example', {
         apiKey: 'demo-api-key',
         dryRun: true,
-        trackingConsent: { default: 'denied', persist: false },
+        trackingConsent: { initial: 'denied', persist: false },
       });
       pug.track('queued_before_load'); // replayed after load; dropped by consent (denied) — see console
     </script>

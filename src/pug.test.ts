@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearProfile, configureProfile, getAnonymousId, isIdentified, markIdentified } from './profile.js'
-import { clearSession, configureSession } from './session.js'
+import {
+  clearProfile,
+  configureProfile,
+  getAnonymousId,
+  isIdentified,
+  markIdentified,
+  resolveDistinctId,
+} from './profile.js'
+import { clearSession, configureSession, onConsentGranted, resetIdentity, resolveSessionId } from './session.js'
 import { makeStorageKey } from './utils.js'
 
 const logSpies = {
@@ -28,6 +35,9 @@ const cleanupSpies = {
 const transportSpies = {
   send: vi.fn(() => Promise.resolve()),
   destroy: vi.fn(),
+  // Consent teardown drops the persisted event queue too. Omitting it here made every consent
+  // transition in this file throw a swallowed TypeError and silently report failure.
+  purgeQueue: vi.fn(() => true),
 }
 
 const unaryCallSpy = vi.fn(() => Promise.resolve({}))
@@ -72,16 +82,21 @@ vi.mock('./events/frustration.js', () => ({
   setupDeadClickTracking: trackerSpies.deadClick,
 }))
 
+// onConsentGranted was missing here while pug.ts imports and calls it. Vitest throws on access to an
+// undefined mock export, and that call sits inside a try/catch that only warns — so every
+// optInTracking() in this file threw, warned, and passed anyway. Ten tests were green while the
+// grant-time side effect failed on every run. Same trap CLAUDE.md documents for setDebugLogging.
 vi.mock('./session.js', () => ({
-  clearSession: vi.fn(),
+  clearSession: vi.fn(() => true),
   configureSession: vi.fn(),
   destroySession: vi.fn(),
-  resetIdentity: vi.fn(),
+  onConsentGranted: vi.fn(),
+  resetIdentity: vi.fn(() => true),
   resolveSessionId: vi.fn(() => '01234567-0123-7123-8123-012345678901'),
 }))
 
 vi.mock('./profile.js', () => ({
-  clearProfile: vi.fn(),
+  clearProfile: vi.fn(() => true),
   configureProfile: vi.fn(),
   destroyProfile: vi.fn(),
   getAnonymousId: vi.fn(() => 'anonymous-id'),
@@ -489,9 +504,81 @@ describe('tracking consent', () => {
 
     expect(getTrackingConsent()).toBeUndefined()
 
-    init('project-id', { apiKey: 'api-key', autoCapture: false, trackingConsent: { default: 'denied', persist: true } })
+    init('project-id', { apiKey: 'api-key', autoCapture: false, trackingConsent: { initial: 'denied', persist: true } })
 
     expect(getTrackingConsent()).toBe('granted')
+  })
+
+  it('reports consent pending until the user answers, and not after', async () => {
+    const { init, isConsentPending, getTrackingConsent, optInTracking } = await importPug()
+
+    // Before init: true, because a persisted choice has not been read yet.
+    expect(isConsentPending()).toBe(true)
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('isConsentPending() called before init()'))
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+    // Seeded 'granted' — the SDK is tracking, but the user has not chosen it.
+    expect(getTrackingConsent()).toBe('granted')
+    expect(isConsentPending()).toBe(true)
+
+    optInTracking()
+    expect(isConsentPending()).toBe(false)
+  })
+
+  it('reports consent decided when a persisted choice is restored', async () => {
+    localStorage.setItem(makeStorageKey('project-id', 'consent'), 'cookieless')
+    const { init, isConsentPending } = await importPug()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      trackingConsent: { initial: 'granted', persist: true },
+    })
+
+    expect(isConsentPending()).toBe(false)
+  })
+
+  it('optOutTracking applies onReject: cookieless instead of denied', async () => {
+    const { init, isTrackingEnabled, getTrackingConsent, optOutTracking } = await importPug()
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      trackingConsent: { initial: 'cookieless', onReject: 'cookieless' },
+    })
+
+    expect(optOutTracking()).toBe(true)
+    expect(getTrackingConsent()).toBe('cookieless')
+    // The point of the mode: rejecting keeps identity-free traffic counts flowing.
+    expect(isTrackingEnabled()).toBe(true)
+    // And still tears identity down, exactly as a denied rejection would.
+    expect(clearProfile).toHaveBeenCalled()
+    expect(clearSession).toHaveBeenCalled()
+  })
+
+  it('optOutTracking still denies by default', async () => {
+    const { init, isTrackingEnabled, getTrackingConsent, optOutTracking } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false })
+    optOutTracking()
+
+    expect(getTrackingConsent()).toBe('denied')
+    expect(isTrackingEnabled()).toBe(false)
+  })
+
+  it('warns and reports failure when optOutTracking runs before init', async () => {
+    const { optOutTracking } = await importPug()
+
+    expect(optOutTracking()).toBe(false)
+    expect(logSpies.warn).toHaveBeenCalledWith('optOutTracking() called before init().')
+  })
+
+  // The accept half of the same banner: it delegated, so the warning named setTrackingConsent.
+  it('warns and reports failure when optInTracking runs before init', async () => {
+    const { optInTracking } = await importPug()
+
+    expect(optInTracking()).toBe(false)
+    expect(logSpies.warn).toHaveBeenCalledWith('optInTracking() called before init().')
   })
 
   it('reports granted consent after opt in', async () => {
@@ -634,7 +721,7 @@ describe('tracking consent persistence', () => {
     init('project-id', {
       apiKey: 'api-key',
       autoCapture: false,
-      trackingConsent: { default: 'granted', persist: true },
+      trackingConsent: { initial: 'granted', persist: true },
     })
     optOutTracking()
     expect(localStorage.getItem(CONSENT_KEY)).toBe('denied')
@@ -644,7 +731,7 @@ describe('tracking consent persistence', () => {
     init('project-id', {
       apiKey: 'api-key',
       autoCapture: false,
-      trackingConsent: { default: 'granted', persist: true },
+      trackingConsent: { initial: 'granted', persist: true },
     })
     expect(getTrackingConsent()).toBe('denied')
   })
@@ -655,7 +742,7 @@ describe('tracking consent persistence', () => {
     init('project-id', {
       apiKey: 'api-key',
       autoCapture: false,
-      trackingConsent: { default: 'denied', persist: true },
+      trackingConsent: { initial: 'denied', persist: true },
     })
     optInTracking()
     expect(localStorage.getItem(CONSENT_KEY)).toBe('granted')
@@ -665,7 +752,7 @@ describe('tracking consent persistence', () => {
     init('project-id', {
       apiKey: 'api-key',
       autoCapture: false,
-      trackingConsent: { default: 'denied', persist: true },
+      trackingConsent: { initial: 'denied', persist: true },
     })
     expect(getTrackingConsent()).toBe('granted')
   })
@@ -685,7 +772,7 @@ describe('tracking consent persistence', () => {
     init('project-id', {
       apiKey: 'api-key',
       autoCapture: false,
-      trackingConsent: { default: 'granted', persist: true },
+      trackingConsent: { initial: 'granted', persist: true },
     })
     optOutTracking()
     expect(localStorage.getItem(CONSENT_KEY)).toBe('denied')
@@ -696,30 +783,77 @@ describe('tracking consent persistence', () => {
   })
 })
 
-describe('url sanitizer wiring', () => {
-  type SentEvent = { autoProperties: Record<string, { value: { value: unknown } }> }
+describe('beforeSend wiring', () => {
+  type SentEvent = {
+    autoProperties: Record<string, { value: { value: unknown } }>
+    customProperties: Record<string, { value: { value: unknown } }>
+  }
 
-  it('applies init({ sanitizeUrl }) to outgoing event URLs', async () => {
+  it('applies init({ beforeSend }) to outgoing events', async () => {
     const { init, track } = await importPug()
 
-    init('project-id', { apiKey: 'api-key', autoCapture: false, sanitizeUrl: () => 'REDACTED' })
-    track('signup', { plan: 'pro' })
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      beforeSend: e => {
+        delete e.customProperties.ssn
+        return e
+      },
+    })
+    track('signup', { ssn: '123-45-6789', plan: 'pro' })
 
-    expect(transportSpies.send).toHaveBeenCalledOnce()
+    const event = transportSpies.send.mock.calls[0][0] as SentEvent
+    expect(event.customProperties.ssn).toBeUndefined()
+    expect(event.customProperties.plan.value.value).toBe('pro')
+  })
+
+  it('can mask $url, the job sanitizeUrl used to do', async () => {
+    const { init, track } = await importPug()
+    type SentEvent = { autoProperties: Record<string, { value: { value: unknown } }> }
+
+    init('project-id', {
+      apiKey: 'api-key',
+      autoCapture: false,
+      beforeSend: e => {
+        e.autoProperties.$url = 'REDACTED'
+        return e
+      },
+    })
+    track('signup')
+
     const event = transportSpies.send.mock.calls[0][0] as SentEvent
     expect(event.autoProperties.$url.value.value).toBe('REDACTED')
   })
 
-  it('sends raw URLs after a destroy / re-init without a sanitizer', async () => {
+  // A dropped event must not reach the transport at all — not queued, not beaconed later.
+  it('never hands a dropped event to the transport', async () => {
+    const { init, track } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, beforeSend: () => null })
+    track('signup')
+
+    expect(transportSpies.send).not.toHaveBeenCalled()
+  })
+
+  // A JS or one-tag install gets no compile error for the removed option, so without this the
+  // migration is silent and URLs the integrator believes are masked start going out raw.
+  it('warns when the removed sanitizeUrl option is still passed', async () => {
+    const { init } = await importPug()
+
+    init('project-id', { apiKey: 'api-key', autoCapture: false, sanitizeUrl: () => 'x' } as never)
+
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('sanitizeUrl was removed'))
+  })
+
+  it('stops applying the hook after a destroy / re-init without one', async () => {
     const { destroy, init, track } = await importPug()
 
-    init('project-id', { apiKey: 'api-key', autoCapture: false, sanitizeUrl: () => 'REDACTED' })
+    init('project-id', { apiKey: 'api-key', autoCapture: false, beforeSend: () => null })
     destroy()
     init('project-id', { apiKey: 'api-key', autoCapture: false })
-    track('signup', { plan: 'pro' })
+    track('signup')
 
-    const event = transportSpies.send.mock.calls.at(-1)?.[0] as SentEvent
-    expect(event.autoProperties.$url.value.value).not.toBe('REDACTED')
+    expect(transportSpies.send).toHaveBeenCalledOnce()
   })
 })
 
@@ -785,5 +919,258 @@ describe('crossSubdomainTracking wiring', () => {
     expect(logSpies.warn).toHaveBeenCalledWith(
       'crossSubdomainTracking domain "example.com" is not usable on "localhost"; using a host-only cookie instead.',
     )
+  })
+})
+
+describe('cookieless mode', () => {
+  it('track() sends identity-free flagged events and never touches session/profile', async () => {
+    const { init, track } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'cookieless' })
+    track('page_view')
+    const [event] = transportSpies.send.mock.calls.at(-1) ?? []
+    expect(event.cookieless).toBe(true)
+    expect(event.distinctId).toBe('')
+    expect(event.sessionId).toBe('')
+    expect(vi.mocked(resolveSessionId)).not.toHaveBeenCalled()
+    expect(vi.mocked(resolveDistinctId)).not.toHaveBeenCalled()
+  })
+
+  it('auto-capture listeners run in cookieless mode', async () => {
+    const { init } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'cookieless', autoCapture: true })
+    expect(trackerSpies.pageView).toHaveBeenCalled()
+  })
+
+  // Warn, not debug: isTrackingEnabled() returns true in cookieless mode, so the pre-flight check
+  // integrators were told to use takes the branch and identifies nobody. A debug-gated message is
+  // invisible to precisely the person debugging that.
+  it('identify() warns once and drops in cookieless mode', async () => {
+    const { init, identify } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'cookieless' })
+    await identify('user@example.com')
+    await identify('another@example.com')
+    expect(unaryCallSpy).not.toHaveBeenCalled()
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('cookieless mode'))
+    expect(logSpies.warn.mock.calls.filter(c => String(c[0]).includes('cookieless mode'))).toHaveLength(1)
+  })
+
+  it('identify() drops at debug level when consent is denied', async () => {
+    const { init, identify } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'denied' })
+    await identify('user@example.com')
+    expect(unaryCallSpy).not.toHaveBeenCalled()
+    expect(logSpies.debug).toHaveBeenCalledWith(expect.stringContaining('denied'))
+  })
+
+  // The server reserves this prefix for cookieless identities and rejects the ENTIRE batch
+  // containing an offending distinct_id, so one bad identify() poisons every later batch for
+  // that user with no signal pointing back at the cause.
+  it('identify() rejects an externalId using the reserved cookieless- prefix', async () => {
+    const { init, identify } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    await identify('cookieless-42')
+    expect(unaryCallSpy).not.toHaveBeenCalled()
+    expect(logSpies.error).toHaveBeenCalledWith(expect.stringContaining('reserved'))
+  })
+
+  it('setTrackingConsent granted->cookieless purges identity; ->granted mints nothing eagerly', async () => {
+    const { init, setTrackingConsent } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    setTrackingConsent('cookieless')
+    expect(vi.mocked(clearProfile)).toHaveBeenCalled()
+    expect(vi.mocked(clearSession)).toHaveBeenCalled()
+    setTrackingConsent('granted')
+    // Fresh identity is lazy — nothing resolves until the next event.
+    expect(vi.mocked(resolveDistinctId)).not.toHaveBeenCalled()
+  })
+
+  it('isTrackingEnabled() is true in cookieless mode; getTrackingConsent() reports it', async () => {
+    const { init, isTrackingEnabled, getTrackingConsent } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'cookieless' })
+    expect(isTrackingEnabled()).toBe(true)
+    expect(getTrackingConsent()).toBe('cookieless')
+  })
+
+  it('denied -> cookieless starts listeners (reconcile turns capture on)', async () => {
+    const { init, setTrackingConsent } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'denied', autoCapture: true })
+    expect(trackerSpies.pageView).not.toHaveBeenCalled()
+    setTrackingConsent('cookieless')
+    expect(trackerSpies.pageView).toHaveBeenCalled()
+  })
+})
+
+describe('respectGpc wiring', () => {
+  const withGpc = (value: unknown): void => {
+    Object.defineProperty(navigator, 'globalPrivacyControl', { value, configurable: true })
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'globalPrivacyControl')
+  })
+
+  it('starts denied with no listeners attached and drops track()', async () => {
+    withGpc(true)
+    const { init, track, getTrackingConsent, isTrackingEnabled } = await importPug()
+
+    init('proj', { apiKey: 'k', autoCapture: true, trackingConsent: { respectGpc: true } })
+
+    expect(getTrackingConsent()).toBe('denied')
+    expect(isTrackingEnabled()).toBe(false)
+    expect(trackerSpies.pageView).not.toHaveBeenCalled()
+    track('click')
+    expect(transportSpies.send).not.toHaveBeenCalled()
+  })
+
+  // isAuthoritative() is what gates this, so a GPC user does not keep a prior consented visit's ids.
+  it('purges identity left over from an earlier consented visit', async () => {
+    withGpc(true)
+    const { init } = await importPug()
+
+    init('proj', { apiKey: 'k', autoCapture: false, trackingConsent: { respectGpc: true } })
+
+    expect(clearProfile).toHaveBeenCalled()
+    expect(clearSession).toHaveBeenCalled()
+    expect(transportSpies.purgeQueue).toHaveBeenCalled()
+  })
+
+  it('keeps events flowing identity-free when onReject is cookieless', async () => {
+    withGpc(true)
+    const { init, track, getTrackingConsent } = await importPug()
+
+    init('proj', { apiKey: 'k', autoCapture: false, trackingConsent: { respectGpc: true, onReject: 'cookieless' } })
+
+    expect(getTrackingConsent()).toBe('cookieless')
+    track('click')
+    expect(transportSpies.send).toHaveBeenCalled()
+    expect(resolveSessionId).not.toHaveBeenCalled()
+  })
+
+  it('does not override a stored opt-in from this site', async () => {
+    withGpc(true)
+    localStorage.setItem(makeStorageKey('proj', 'consent'), 'granted')
+    const { init, getTrackingConsent } = await importPug()
+
+    init('proj', { apiKey: 'k', autoCapture: false, trackingConsent: { respectGpc: true, persist: true } })
+
+    expect(getTrackingConsent()).toBe('granted')
+  })
+})
+
+describe('consent teardown contract', () => {
+  it('purges the persisted event queue when leaving granted', async () => {
+    const { init, optOutTracking } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    transportSpies.purgeQueue.mockClear()
+
+    expect(optOutTracking()).toBe(true)
+    expect(transportSpies.purgeQueue).toHaveBeenCalled()
+  })
+
+  // The boolean exists so a withdrawal that did not fully land is detectable rather than
+  // console-only. Nothing asserted it, so a teardown that reported failure looked identical.
+  it('reports false when a queued-event purge does not land', async () => {
+    const { init, optOutTracking } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    transportSpies.purgeQueue.mockReturnValueOnce(false)
+
+    expect(optOutTracking()).toBe(false)
+  })
+
+  it('reset() reports whether the identity teardown landed', async () => {
+    const { init, reset } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    vi.mocked(clearProfile).mockReturnValueOnce(false)
+
+    // reset() is the logout path — the one place an integrator most needs to know a cross-subdomain
+    // identity cookie survived, since the next user of that browser inherits it.
+    expect(reset()).toBe(false)
+  })
+
+  // C->D was the one transition where isTracking() goes true->false FROM cookieless, so listeners
+  // must tear down. It shared code with G->D, but nothing exercised it.
+  it('cookieless -> denied tears listeners down', async () => {
+    const { init, setTrackingConsent } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'cookieless', autoCapture: true })
+    expect(trackerSpies.pageView).toHaveBeenCalled()
+
+    expect(setTrackingConsent('denied')).toBe(true)
+    expect(cleanupSpies.pageView).toHaveBeenCalled()
+  })
+
+  it('denied -> denied is idempotent and still reports success', async () => {
+    const { init, optOutTracking } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'denied', autoCapture: true })
+
+    expect(optOutTracking()).toBe(true)
+    expect(optOutTracking()).toBe(true)
+    expect(trackerSpies.pageView).not.toHaveBeenCalled()
+  })
+
+  // The grant-time side effect itself, asserted rather than assumed: the mock omission above meant
+  // this call threw into a warn-only catch on every opt-in while ten tests stayed green.
+  it('re-arms the tab registry when consent is granted', async () => {
+    const { init, optInTracking } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'denied' })
+    vi.mocked(onConsentGranted).mockClear()
+
+    expect(optInTracking()).toBe(true)
+    expect(onConsentGranted).toHaveBeenCalled()
+  })
+
+  it('does not re-arm the tab registry when entering a non-granted state', async () => {
+    const { init, setTrackingConsent } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    vi.mocked(onConsentGranted).mockClear()
+
+    setTrackingConsent('cookieless')
+    expect(onConsentGranted).not.toHaveBeenCalled()
+  })
+})
+
+describe('teardown failures surface in the returned boolean', () => {
+  // These booleans exist so a withdrawal that did not fully land is detectable rather than
+  // console-only — but every teardown leg was mocked as vi.fn(() => true), so the failure arm was
+  // unreachable and forcing any of them to always-true left the suite green.
+  it('reports false when the profile could not be cleared', async () => {
+    const { init, optOutTracking } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    vi.mocked(clearProfile).mockReturnValueOnce(false)
+
+    expect(optOutTracking()).toBe(false)
+  })
+
+  it('reports false when the session could not be cleared', async () => {
+    const { init, optOutTracking } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    vi.mocked(clearSession).mockReturnValueOnce(false)
+
+    expect(optOutTracking()).toBe(false)
+  })
+
+  it('reports false when the queued events could not be purged', async () => {
+    const { init, optOutTracking } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    transportSpies.purgeQueue.mockReturnValueOnce(false)
+
+    expect(optOutTracking()).toBe(false)
+  })
+
+  // resetIdentity() logs an error and returns on a failed persist — it never throws — so reset()'s
+  // try/catch could not see it and returned true while the previous user's session and device id
+  // were still on the device. That is verbatim the case README promises the boolean covers.
+  it('reset() reports false when the identity could not be reset', async () => {
+    const { init, reset } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+    vi.mocked(resetIdentity).mockReturnValueOnce(false)
+
+    expect(reset()).toBe(false)
+  })
+
+  it('reset() reports true when every leg succeeds', async () => {
+    const { init, reset } = await importPug()
+    init('proj', { apiKey: 'k', trackingConsent: 'granted' })
+
+    expect(reset()).toBe(true)
   })
 })

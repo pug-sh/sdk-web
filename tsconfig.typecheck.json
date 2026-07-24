@@ -3,7 +3,11 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    // Makes track-types.test-d.ts's `scroll: flag || undefined` case a real guard: without this
+    // flag, reverting AutoCaptureSelection's values to bare `true` leaves typecheck and CI green
+    // and ships the regression to consumers on @tsconfig/strictest, which enables it.
+    "exactOptionalPropertyTypes": true
   },
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts"]

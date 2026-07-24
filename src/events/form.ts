@@ -1,4 +1,4 @@
-import { sanitizeUrlValue, type TrackFn, type WellKnownEventName } from '../track.js'
+import type { TrackFn, WellKnownEventName } from '../track.js'
 
 export const eventFormStart = 'form_start' satisfies WellKnownEventName
 export const eventFormSubmit = 'form_submit' satisfies WellKnownEventName
@@ -25,7 +25,7 @@ export const setupFormTracking = (track: TrackFn) => {
     }
     const form = event.target as HTMLFormElement
     track(eventFormSubmit, {
-      action: sanitizeUrlValue(form.action),
+      action: form.action,
       formId: form.id || '(anonymous)',
       formName: form.name,
     })

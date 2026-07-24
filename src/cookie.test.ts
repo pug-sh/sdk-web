@@ -178,10 +178,15 @@ describe('createCookieLayer', () => {
     expect(logSpies.debug).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
   })
 
-  it('logs the cause when a cookie removal throws (privacy teardown must surface why)', () => {
+  // At error, not debug. The intent ("must surface why") was always stated, but log.debug is off
+  // unless the integrator already passed `debug: true` — invisible to exactly the person diagnosing
+  // a failed opt-out. The teardown boolean chain now rests on this return value, and the outcome is
+  // an identity cookie surviving on the registrable domain.
+  it('logs the cause at error level when a cookie removal throws (privacy teardown must surface why)', () => {
     const layer = createCookieLayer(true, docAt('https://app.example.com/'))
     expect(layer?.remove('\uD800')).toBe(false) // encodeURIComponent(key) throws inside remove
-    expect(logSpies.debug).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
+    expect(logSpies.error).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
+    expect(logSpies.debug).not.toHaveBeenCalledWith(expect.any(String), expect.any(Error))
   })
 
   it('skips a malformed same-name twin and returns the valid shared value', () => {
@@ -343,5 +348,61 @@ describe('cookie attributes', () => {
     const write = identityWrite(writes)
     expect(write).toBeDefined()
     expect(write).not.toContain('secure')
+  })
+})
+
+describe('maxAgeDays', () => {
+  // The identity write is the long-lived one; probe writes carry max-age=3 or max-age=0.
+  const longLivedWrite = (writes: string[]): string | undefined =>
+    writes.find(w => w.includes(KEY) && !w.includes('max-age=0'))
+
+  it('defaults to 365 days when not configured', () => {
+    const { doc, writes } = capturingDoc('https://app.example.com/')
+    createCookieLayer(true, doc)?.set(KEY, 'v')
+    expect(longLivedWrite(writes)).toContain(`max-age=${365 * 24 * 60 * 60}`)
+  })
+
+  it('applies a configured lifetime', () => {
+    const { doc, writes } = capturingDoc('https://app.example.com/')
+    createCookieLayer({ maxAgeDays: 180 }, doc)?.set(KEY, 'v')
+    expect(longLivedWrite(writes)).toContain(`max-age=${180 * 24 * 60 * 60}`)
+  })
+
+  // An absent `domain` must not read as "pin the empty domain" and collapse to host-only.
+  it('still auto-discovers the registrable domain when only maxAgeDays is given', () => {
+    const jar = new CookieJar()
+    const app = createCookieLayer({ maxAgeDays: 180 }, docAt('https://app.example.com/', jar))
+    expect(app?.crossSubdomain).toBe(true)
+    app?.set(KEY, 'anon-1')
+    expect(docAt('https://www.example.com/', jar).cookie).toContain(`${KEY}=anon-1`)
+  })
+
+  it('carries the configured lifetime through a host-only to shared promotion', () => {
+    const { doc, writes } = capturingDoc('https://app.example.com/')
+    doc.cookie = `${KEY}=anon-legacy; path=/`
+    createCookieLayer({ maxAgeDays: 180 }, doc)?.get(KEY)
+    // The promotion write, not the host-only seed above nor the domain probe.
+    expect(writes.find(w => w.includes(KEY) && w.includes('domain=.example.com'))).toContain(
+      `max-age=${180 * 24 * 60 * 60}`,
+    )
+  })
+
+  it.each([
+    ['zero', 0],
+    ['negative', -1],
+    ['non-finite', Number.NaN],
+    ['a string from data-options JSON', '180'],
+  ])('warns and falls back to 365 days on %s', (_label, value) => {
+    const { doc, writes } = capturingDoc('https://app.example.com/')
+    createCookieLayer({ maxAgeDays: value as number }, doc)?.set(KEY, 'v')
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('must be a number greater than 0'))
+    expect(longLivedWrite(writes)).toContain(`max-age=${365 * 24 * 60 * 60}`)
+  })
+
+  it('warns but honors a lifetime past the browser cap, since the browser shortens it anyway', () => {
+    const { doc, writes } = capturingDoc('https://app.example.com/')
+    createCookieLayer({ maxAgeDays: 500 }, doc)?.set(KEY, 'v')
+    expect(logSpies.warn).toHaveBeenCalledWith(expect.stringContaining('400-day cap'))
+    expect(longLivedWrite(writes)).toContain(`max-age=${500 * 24 * 60 * 60}`)
   })
 })

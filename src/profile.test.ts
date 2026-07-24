@@ -259,3 +259,79 @@ describe('cross-subdomain identity', () => {
     expect(profile.getAnonymousId().startsWith('anon-')).toBe(true)
   })
 })
+
+// identify() rejects a `cookieless-` externalId, but the restore path had no such check — so a
+// device poisoned by a pre-check SDK version (or by a sibling subdomain still running one, via the
+// shared cookie) kept sending it as distinctId forever. The server's message-level CEL rule then
+// rejects the WHOLE batch as InvalidArgument, which the batch layer classifies permanent, so every
+// batch containing that user is committed and dropped. Upgrading did not heal the device.
+//
+// getAnonymousId() twenty lines away already validates its own `anon-` prefix and regenerates on
+// mismatch; this is the same posture for the other restored identifier.
+describe('poisoned externalId restore', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('discards a restored externalId carrying the reserved cookieless- prefix', async () => {
+    localStorage.setItem(EXTERNAL_ID_KEY, 'cookieless-20260721-abc')
+    vi.resetModules()
+    const profile = await import('./profile.js')
+    profile.configureProfile(PROJECT_ID)
+
+    expect(profile.isIdentified()).toBe(false)
+    expect(profile.resolveDistinctId()).toMatch(/^anon-/)
+    // Removed, not merely ignored: leaving it means the next SDK version that drops the check
+    // resurrects it, and the device stays poisoned across upgrades.
+    expect(localStorage.getItem(EXTERNAL_ID_KEY)).toBeNull()
+    expect(logSpies.warn).toHaveBeenCalled()
+  })
+
+  it('still restores a legitimate externalId', async () => {
+    localStorage.setItem(EXTERNAL_ID_KEY, 'user@example.com')
+    vi.resetModules()
+    const profile = await import('./profile.js')
+    profile.configureProfile(PROJECT_ID)
+
+    expect(profile.isIdentified()).toBe(true)
+    expect(profile.resolveDistinctId()).toBe('user@example.com')
+  })
+})
+
+describe('reserved-prefix heal reports an unconfirmed removal', () => {
+  // The warning asserts the device was healed ("discarding it") and the comment goes further
+  // ("healed instead of merely tolerated"), but removeItem's boolean was discarded. In
+  // cross-subdomain mode cookie.remove() returns false from its read-back check with no log of its
+  // own, so a poisoned value survived and was re-read on every later init() while the message said
+  // it was gone.
+  it('logs an error when the poisoned external ID could not be removed', async () => {
+    vi.resetModules()
+    const { configureProfile } = await import('./profile.js')
+    const store = {
+      getItem: (k: string) => (k.includes('external_id') ? 'cookieless-abc123' : null),
+      setItem: () => true,
+      removeItem: () => false, // the removal does not land
+      crossSubdomain: true,
+    }
+
+    configureProfile('proj-poison', store, () => true)
+
+    expect(logSpies.error).toHaveBeenCalledWith(expect.stringContaining('cookieless-'))
+  })
+
+  it('stays quiet when the removal is confirmed', async () => {
+    vi.resetModules()
+    const { configureProfile } = await import('./profile.js')
+    const store = {
+      getItem: (k: string) => (k.includes('external_id') ? 'cookieless-abc123' : null),
+      setItem: () => true,
+      removeItem: () => true,
+      crossSubdomain: true,
+    }
+
+    configureProfile('proj-poison-ok', store, () => true)
+
+    expect(logSpies.error).not.toHaveBeenCalled()
+  })
+})

@@ -5,6 +5,7 @@ import { setupPageViewTracking } from './events/page_view.js'
 import { setupScrollTracking } from './events/scroll.js'
 import { log } from './logger.js'
 import type { TrackFn } from './track.js'
+import type { TrackingGate } from './tracking-consent.js'
 
 /**
  * Per-listener allowlist for automatic capture.
@@ -75,7 +76,7 @@ const resolveAutoCapture = (autoCapture: AutoCaptureConfig | undefined): AutoCap
  * Reports a misconfigured selection, once, when it is set.
  *
  * Deliberately called from `setDesired` rather than from `reconcile`: reconcile only consults the
- * selection when consent is granted, so validating there would say nothing at all for the
+ * selection while tracking is active (granted **or** cookieless), so validating there would say nothing at all for the
  * consent-first flows the README recommends — the integrator would get the diagnosis at
  * `optInTracking()` time, in a user's browser, long after they stopped watching the console — and
  * would then re-warn on every opt-in/opt-out cycle.
@@ -139,11 +140,12 @@ const validateAutoCapture = (autoCapture: AutoCaptureConfig | undefined): void =
 
 /**
  * Owns the auto-capture lifecycle. Holds the desired selection and reconciles the live SDK
- * listeners against it, gated by consent (read via `isConsentGranted`): while consent is denied no
- * listener runs, regardless of the desired selection. Cleanup is tracked per tracker so the
- * selection can be changed at runtime without tearing down listeners that stay enabled.
+ * listeners against it, gated by tracking being active (read via `isTrackingActive` — true for
+ * granted AND cookieless consent, not just full consent): while tracking is off no listener runs,
+ * regardless of the desired selection. Cleanup is tracked per tracker so the selection can be
+ * changed at runtime without tearing down listeners that stay enabled.
  */
-export const createAutoCaptureController = (track: TrackFn, isConsentGranted: () => boolean) => {
+export const createAutoCaptureController = (track: TrackFn, isTrackingActive: TrackingGate) => {
   const cleanups = new Map<AutoCaptureKey, () => void>()
   let desired: AutoCaptureConfig | undefined
 
@@ -173,10 +175,10 @@ export const createAutoCaptureController = (track: TrackFn, isConsentGranted: ()
     }
   }
 
-  // Effective listeners = desired selection gated by consent. Idempotent: already-enabled trackers
-  // that stay enabled are left untouched (no teardown + re-setup).
+  // Effective listeners = desired selection gated by tracking being active. Idempotent:
+  // already-enabled trackers that stay enabled are left untouched (no teardown + re-setup).
   const reconcile = (): void => {
-    const enabledTrackers = new Set(isConsentGranted() ? resolveAutoCapture(desired) : [])
+    const enabledTrackers = new Set(isTrackingActive() ? resolveAutoCapture(desired) : [])
 
     for (const key of trackerKeys) {
       if (!enabledTrackers.has(key)) {

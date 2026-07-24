@@ -9,12 +9,14 @@ import {
   getTrackingConsent,
   identify,
   init,
+  isConsentPending,
   isTrackingEnabled,
   optInTracking,
   optOutTracking,
   reset,
   rotate,
   setAutoCapture,
+  setTrackingConsent,
   track,
 } from './index.js'
 import { log } from './logger.js'
@@ -30,10 +32,12 @@ const api = {
   reset,
   destroy,
   setAutoCapture,
+  setTrackingConsent,
   optInTracking,
   optOutTracking,
   isTrackingEnabled,
   getTrackingConsent,
+  isConsentPending,
   rotate,
   /**
    * CDN-only helper: runs `cb` once the SDK is loaded — queued before load it fires during queue

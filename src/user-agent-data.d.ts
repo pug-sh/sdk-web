@@ -17,4 +17,6 @@ interface NavigatorUAData {
 
 interface Navigator {
   readonly userAgentData?: NavigatorUAData
+  /** Global Privacy Control. Non-standard, so absent on most browsers. */
+  readonly globalPrivacyControl?: boolean
 }

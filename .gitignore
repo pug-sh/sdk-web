@@ -88,3 +88,6 @@ docs/superpowers
 
 # Wrangler local state/cache (wrangler may create this in the repo root on any invocation)
 .wrangler/
+
+# Scratch dir for `make check-proto-pin` (fresh BSR export, diffed against proto/)
+.proto-pin-check/

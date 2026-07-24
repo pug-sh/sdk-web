@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { configureUrlSanitizer } from '../track.js'
 import { setupFormTracking } from './form.js'
 
 describe('setupFormTracking', () => {
@@ -8,7 +7,6 @@ describe('setupFormTracking', () => {
   afterEach(() => {
     cleanup?.()
     cleanup = undefined
-    configureUrlSanitizer(undefined)
     document.body.innerHTML = ''
   })
 
@@ -35,26 +33,7 @@ describe('setupFormTracking', () => {
     expect(track).toHaveBeenCalledWith('form_start', { formId: 'signup', formName: 'signup-form' })
   })
 
-  it('runs the form action through the configured URL sanitizer on submit', () => {
-    configureUrlSanitizer(url => url.replace(/\/orders\/\d+/, '/orders/:orderId'))
-    const track = vi.fn()
-    cleanup = setupFormTracking(track)
-    const { form } = buildForm()
-    form.setAttribute('action', '/orders/12345')
-
-    form.dispatchEvent(new Event('submit', { bubbles: true }))
-
-    expect(track).toHaveBeenCalledWith(
-      'form_submit',
-      expect.objectContaining({ action: expect.stringContaining('/orders/:orderId') }),
-    )
-    expect(track).toHaveBeenCalledWith(
-      'form_submit',
-      expect.objectContaining({ action: expect.not.stringContaining('12345') }),
-    )
-  })
-
-  it('passes the action through unchanged when no sanitizer is configured', () => {
+  it("sends the form action as-is (redaction is beforeSend's job)", () => {
     const track = vi.fn()
     cleanup = setupFormTracking(track)
     const { form } = buildForm()

@@ -47,7 +47,7 @@
     <h1>Pug SDK — Privacy Controls</h1>
     <p class="desc">
       Demonstrates the two integrator-owned PII controls: the <code>data-pug-no-capture</code> attribute and the
-      <code>sanitizeUrl</code> init hook. The SDK runs in <code>dryRun</code> mode here, so nothing is sent.
+      <code>beforeSend</code> init hook. The SDK runs in <code>dryRun</code> mode here, so nothing is sent.
     </p>
 
     <h2>1. <code>data-pug-no-capture</code> — redact element text</h2>
@@ -67,9 +67,9 @@
     </div>
     <div id="capture-log"></div>
 
-    <h2>2. <code>sanitizeUrl</code> — mask routes &amp; strip PII params</h2>
+    <h2>2. <code>beforeSend</code> — mask routes &amp; strip PII params</h2>
     <p class="desc">
-      The same <code>maskUrl</code> function passed to <code>init({ sanitizeUrl })</code>, applied to sample URLs.
+      The same <code>maskUrl</code> function used by <code>init({ beforeSend })</code>, applied to sample URLs.
       It runs on <code>$url</code> and <code>$referrer</code> on every event, and on a form's action when the form is
       submitted.
     </p>

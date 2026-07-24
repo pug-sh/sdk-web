@@ -1,8 +1,10 @@
 import type { TrackFn, WellKnownEventName } from '../track.js'
-import { isCaptureSuppressed } from '../utils.js'
+import { getSafeElementText } from '../utils.js'
 
 export const eventRageClick = 'rage_click' satisfies WellKnownEventName
 export const eventDeadClick = 'dead_click' satisfies WellKnownEventName
+
+const MAX_TEXT_LENGTH = 20
 
 export const setupRageClickTracking = (track: TrackFn) => {
   const CLICKS_THRESHOLD = 3
@@ -81,8 +83,7 @@ export const setupDeadClickTracking = (track: TrackFn) => {
 
         track(eventDeadClick, {
           element: target.tagName,
-          // Redact text in integrator-marked regions; structural fields still send (see click.ts).
-          text: isCaptureSuppressed(target) ? '' : (target.innerText?.substring(0, 20) ?? ''),
+          text: getSafeElementText(target, MAX_TEXT_LENGTH),
           x: event.clientX,
           y: event.clientY,
         })

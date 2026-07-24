@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setupDeadClickTracking } from './frustration.js'
 
-const withInnerText = (el: HTMLElement, text: string): HTMLElement => {
-  Object.defineProperty(el, 'innerText', { value: text, configurable: true })
+const withText = <T extends HTMLElement>(el: T, text: string): T => {
+  el.textContent = text
   return el
 }
 
@@ -33,12 +33,52 @@ describe('setupDeadClickTracking', () => {
     const track = vi.fn()
     cleanup = setupDeadClickTracking(track)
 
-    const div = withInnerText(document.createElement('div'), 'Submit order')
+    const div = withText(document.createElement('div'), 'Submit order')
     document.body.appendChild(div)
 
     await clickAndSettle(div)
 
     expect(track).toHaveBeenCalledWith('dead_click', { element: 'DIV', text: 'Submit order', x: 7, y: 8 })
+  })
+
+  it('captures the element own text only, never descendant text', async () => {
+    const track = vi.fn()
+    cleanup = setupDeadClickTracking(track)
+
+    const card = withText(document.createElement('div'), 'Open ')
+    card.appendChild(withText(document.createElement('span'), 'jane@example.com'))
+    document.body.appendChild(card)
+
+    await clickAndSettle(card)
+
+    expect(track).toHaveBeenCalledWith('dead_click', expect.objectContaining({ element: 'DIV', text: 'Open' }))
+  })
+
+  it('truncates to 20 characters', async () => {
+    const track = vi.fn()
+    cleanup = setupDeadClickTracking(track)
+
+    const div = withText(document.createElement('div'), 'a'.repeat(60))
+    document.body.appendChild(div)
+
+    await clickAndSettle(div)
+
+    expect(track).toHaveBeenCalledWith('dead_click', expect.objectContaining({ text: 'a'.repeat(20) }))
+  })
+
+  it('captures no text when the click lands inside a contenteditable region', async () => {
+    const track = vi.fn()
+    cleanup = setupDeadClickTracking(track)
+
+    const editor = document.createElement('div')
+    editor.setAttribute('contenteditable', 'true')
+    const line = withText(document.createElement('p'), 'my secret diary entry')
+    editor.appendChild(line)
+    document.body.appendChild(editor)
+
+    await clickAndSettle(line)
+
+    expect(track).toHaveBeenCalledWith('dead_click', expect.objectContaining({ element: 'P', text: '' }))
   })
 
   it('redacts text on a dead click inside a data-pug-no-capture region', async () => {
@@ -47,7 +87,7 @@ describe('setupDeadClickTracking', () => {
 
     const wrapper = document.createElement('div')
     wrapper.setAttribute('data-pug-no-capture', '')
-    const div = withInnerText(document.createElement('div'), 'card 4111 1111 1111 1111')
+    const div = withText(document.createElement('div'), 'card 4111 1111 1111 1111')
     wrapper.appendChild(div)
     document.body.appendChild(wrapper)
 
@@ -60,7 +100,7 @@ describe('setupDeadClickTracking', () => {
     const track = vi.fn()
     cleanup = setupDeadClickTracking(track)
 
-    const div = withInnerText(document.createElement('div'), 'jane@example.com')
+    const div = withText(document.createElement('div'), 'jane@example.com')
     div.setAttribute('data-pug-no-capture', '')
     document.body.appendChild(div)
 
